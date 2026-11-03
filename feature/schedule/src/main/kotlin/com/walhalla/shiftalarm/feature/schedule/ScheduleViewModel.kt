@@ -3,17 +3,26 @@ package com.walhalla.shiftalarm.feature.schedule
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.walhalla.shiftalarm.core.model.HomeWidgetRefresher
+import com.walhalla.shiftalarm.core.model.PatternLimits
 import com.walhalla.shiftalarm.core.model.PatternTemplate
 import com.walhalla.shiftalarm.core.model.ShiftRepository
 import com.walhalla.shiftalarm.core.model.ShiftTemplates
+import com.walhalla.shiftalarm.core.model.ShiftType
+import com.walhalla.shiftalarm.core.model.ShiftTypeCatalog
+import com.walhalla.shiftalarm.core.model.ShiftTypeId
+import com.walhalla.shiftalarm.core.ui.UiText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
+import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -21,10 +30,14 @@ class ScheduleViewModel @Inject constructor(
     private val repository: ShiftRepository,
     private val widgetRefresher: HomeWidgetRefresher,
 ) : ViewModel() {
+    private val editor = MutableStateFlow<EditorDraft?>(null)
+
     val uiState: StateFlow<ScheduleUiState> = combine(
         repository.observePatterns(),
         repository.observeActivePattern(),
-    ) { patterns, active ->
+        repository.observeShiftTypes(),
+        editor,
+    ) { patterns, active, storedTypes, draft ->
         ScheduleUiState(
             isLoading = false,
             patterns = patterns.map { pattern ->
@@ -37,12 +50,13 @@ class ScheduleViewModel @Inject constructor(
                 )
             },
             activePatternId = active?.id,
+            editor = draft?.toState(storedTypes),
         )
     }.catch { error ->
         emit(
             ScheduleUiState(
                 isLoading = false,
-                errorMessage = error.message ?: "Не удалось прочитать график",
+                errorMessage = UiText.Raw(error.message ?: "Не удалось прочитать график"),
             ),
         )
     }.stateIn(
@@ -52,6 +66,10 @@ class ScheduleViewModel @Inject constructor(
     )
 
     fun applyTemplate(template: PatternTemplate) {
+        if (template == PatternTemplate.CUSTOM) {
+            openCustomEditor()
+            return
+        }
         viewModelScope.launch {
             val today = LocalDate.now()
             val pattern = when (template) {
@@ -61,9 +79,43 @@ class ScheduleViewModel @Inject constructor(
                 PatternTemplate.FIVE_TWO -> ShiftTemplates.fiveTwo(today)
                 PatternTemplate.CUSTOM -> return@launch
             }
-            repository.upsertPattern(pattern)
-            repository.setActivePattern(pattern.id)
+            repository.saveAndActivate(pattern)
             widgetRefresher.refresh()
+        }
+    }
+
+    fun openCustomEditor() {
+        editor.value = EditorDraft(
+            name = "Свой график",
+            startDate = LocalDate.now(),
+            slots = emptyList(),
+        )
+    }
+
+    fun onEditorEvent(event: PatternEditorEvent) {
+        val current = editor.value ?: return
+        when (event) {
+            is PatternEditorEvent.SetName -> editor.value = current.copy(name = event.name, saveError = null)
+            is PatternEditorEvent.SetStartDate -> editor.value = current.copy(startDate = event.date, saveError = null)
+            is PatternEditorEvent.AddSlot -> {
+                if (current.slots.size >= PatternLimits.MAX_SLOTS) {
+                    editor.value = current.copy(saveError = PatternLimits.slotCountMessage(current.slots.size + 1))
+                    return
+                }
+                editor.value = current.copy(slots = current.slots + event.shiftTypeId, saveError = null)
+            }
+            is PatternEditorEvent.RemoveSlot -> {
+                if (event.index !in current.slots.indices) return
+                editor.value = current.copy(
+                    slots = current.slots.filterIndexed { index, _ -> index != event.index },
+                    saveError = null,
+                )
+            }
+            is PatternEditorEvent.MoveSlot -> editor.value = current.copy(
+                slots = moveSlot(current.slots, event.fromIndex, event.toIndex),
+                saveError = null,
+            )
+            PatternEditorEvent.Save -> viewModelScope.launch { save(current) }
         }
     }
 
@@ -73,4 +125,48 @@ class ScheduleViewModel @Inject constructor(
             widgetRefresher.refresh()
         }
     }
+
+    private suspend fun save(draft: EditorDraft) {
+        if (PatternLimits.slotCountMessage(draft.slots.size) != null) return
+        val stored = repository.observeShiftTypes().first()
+        val cycle = draft.slots.map { id ->
+            ShiftTypeCatalog.find(stored, id) ?: run {
+                editor.update { it?.copy(saveError = "Неизвестный тип смены.") }
+                return
+            }
+        }
+        val pattern = ShiftTemplates.custom(
+            id = "custom-${UUID.randomUUID()}",
+            name = draft.name.ifBlank { "Свой график" },
+            startDate = draft.startDate,
+            cycle = cycle,
+        )
+        repository.saveAndActivate(pattern)
+        widgetRefresher.refresh()
+        editor.value = null
+    }
+
+    private fun EditorDraft.toState(stored: List<ShiftType>): PatternEditorUiState =
+        PatternEditorUiState(
+            name = name,
+            startDate = startDate,
+            slots = slots,
+            availableTypes = ShiftTypeCatalog.options(stored),
+            errorMessage = (PatternLimits.slotCountMessage(slots.size) ?: saveError)?.let(UiText::Raw),
+        )
+
+    private data class EditorDraft(
+        val name: String,
+        val startDate: LocalDate,
+        val slots: List<ShiftTypeId>,
+        val saveError: String? = null,
+    )
+}
+
+private fun moveSlot(slots: List<ShiftTypeId>, fromIndex: Int, toIndex: Int): List<ShiftTypeId> {
+    if (fromIndex !in slots.indices || toIndex !in slots.indices || fromIndex == toIndex) return slots
+    val next = slots.toMutableList()
+    val moved = next.removeAt(fromIndex)
+    next.add(toIndex, moved)
+    return next
 }

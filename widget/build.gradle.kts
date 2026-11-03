@@ -26,6 +26,8 @@ dependencies {
     implementation(project(":core:model"))
     implementation(platform(libs.compose.bom))
     implementation(libs.androidx.glance.appwidget)
+    debugImplementation(libs.androidx.glance.preview)
+    debugImplementation(libs.androidx.glance.appwidget.preview)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

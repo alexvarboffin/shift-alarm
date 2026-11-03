@@ -32,6 +32,9 @@ class RoomShiftRepository @Inject constructor(
         graphs.firstOrNull()?.let { mapPattern(it, types.toDomainMap()) }
     }
 
+    override fun observeShiftTypes(): Flow<List<ShiftType>> =
+        dao.observeShiftTypes().map { rows -> rows.map { it.toDomain() } }
+
     override fun observeOverrides(): Flow<List<DayOverride>> = combine(
         dao.observeOverrides(),
         dao.observeShiftTypes(),
@@ -48,19 +51,20 @@ class RoomShiftRepository @Inject constructor(
         dao.savePattern(
             types = pattern.cycle.map { it.toEntity() }.distinctBy { it.id },
             pattern = pattern.toEntity(isActive = keepActive),
-            slots = pattern.cycle.mapIndexed { index, shift ->
-                PatternSlotEntity(
-                    id = "${pattern.id}#$index",
-                    patternId = pattern.id,
-                    position = index,
-                    shiftTypeId = shift.id,
-                )
-            },
+            slots = pattern.slots(),
         )
     }
 
     override suspend fun setActivePattern(patternId: String?) {
         dao.activate(patternId)
+    }
+
+    override suspend fun saveAndActivate(pattern: ShiftPattern) {
+        dao.saveAndActivate(
+            types = pattern.cycle.map { it.toEntity() }.distinctBy { it.id },
+            pattern = pattern.toEntity(isActive = true),
+            slots = pattern.slots(),
+        )
     }
 
     override suspend fun upsertOverride(override: DayOverride) {
@@ -85,4 +89,13 @@ class RoomShiftRepository @Inject constructor(
 
     private fun List<ShiftTypeEntity>.toDomainMap(): Map<String, ShiftType> =
         associate { it.id to it.toDomain() }
+}
+
+private fun ShiftPattern.slots(): List<PatternSlotEntity> = cycle.mapIndexed { index, shift ->
+    PatternSlotEntity(
+        id = "$id#$index",
+        patternId = id,
+        position = index,
+        shiftTypeId = shift.id,
+    )
 }

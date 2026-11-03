@@ -100,7 +100,7 @@ Room (`shift-alarm.db`, схема версии 1 в `core/database/schemas`) х
 
 Это строки с внешними ключами и выборкой «все дни месяца». Класть тот же граф в DataStore означало бы каждый раз переписывать весь документ.
 
-DataStore Preferences (`shift_alarm_settings`) хранит скаляры, которые не ищутся по дате: минуты snooze, вибрацию и один маркер отложенного звонка (`pending_snooze_epoch_millis`, имя смены). Маркер нужен, чтобы после перезагрузки `scheduleNext` снова поставил именно snooze, а не сразу следующую смену. Это не таблица истории будильников.
+DataStore Preferences (`shift_alarm_settings`) хранит скаляры, которые не ищутся по дате: минуты snooze, вибрацию, флаг `use_dynamic_color` (по умолчанию включён) и один маркер отложенного звонка (`pending_snooze_epoch_millis`, имя смены). Маркер нужен, чтобы после перезагрузки `scheduleNext` снова поставил именно snooze, а не сразу следующую смену. Это не таблица истории будильников.
 
 Активный график живёт в Room (`patterns.isActive`), а не в DataStore: смена активного графика и запись цикла должны быть одной транзакцией.
 
@@ -112,6 +112,7 @@ DataStore Preferences (`shift_alarm_settings`) хранит скаляры, ко
 interface ShiftRepository {
     fun observePatterns(): Flow<List<ShiftPattern>>
     fun observeActivePattern(): Flow<ShiftPattern?>
+    fun observeShiftTypes(): Flow<List<ShiftType>>
     fun observeOverrides(): Flow<List<DayOverride>>
     suspend fun upsertPattern(pattern: ShiftPattern)
     suspend fun setActivePattern(patternId: String?)
@@ -129,6 +130,7 @@ interface SettingsRepository {
     val settings: Flow<UserSettings>
     suspend fun setSnoozeMinutes(minutes: Int)
     suspend fun setVibrationEnabled(enabled: Boolean)
+    suspend fun setUseDynamicColor(enabled: Boolean)
     suspend fun setPendingSnooze(epochMillis: Long?, shiftName: String)
 }
 
@@ -168,6 +170,7 @@ data class ScheduleUiState(
     val isLoading: Boolean = true,
     val patterns: List<PatternSummary> = emptyList(),
     val activePatternId: String? = null,
+    val editor: PatternEditorUiState? = null,
     val errorMessage: String? = null,
 )
 
@@ -176,33 +179,31 @@ data class CalendarUiState(
     val month: YearMonth = YearMonth.now(),
     val days: List<CalendarDayUi> = emptyList(),
     val selected: CalendarDayUi? = null,
+    val selectedDay: SelectedDayDetail? = null,
     val hasActivePattern: Boolean = false,
     val errorMessage: String? = null,
 )
 
-data class CalendarDayUi(
-    val date: LocalDate,
-    val shiftName: String?,
-    val shiftKind: ShiftKind?,
-    val colorArgb: Int?,
-    val hasOverride: Boolean,
-    val alarmLabel: String?,
-)
-
 data class SettingsUiState(
     val isLoading: Boolean = true,
-    val snoozeMinutes: Int = 10,
+    val snoozeOptions: List<Int> = listOf(5, 10, 15, 20, 30),
+    val selectedSnooze: Int = 10,
     val vibrationEnabled: Boolean = true,
+    val useDynamicColor: Boolean = true,
     val canScheduleExactAlarms: Boolean = true,
     val canUseFullScreenIntent: Boolean = true,
     val errorMessage: String? = null,
 )
 
-data class RingingUiState(
-    val shiftName: String = "",
-    val triggerAtEpochMillis: Long = 0L,
-    val snoozeMinutes: Int = 10,
-)
+sealed interface RingingUiState {
+    data object Loading : RingingUiState
+    data class Ringing(
+        val shiftName: String,
+        val triggerAtEpochMillis: Long,
+        val snoozeMinutes: Int,
+    ) : RingingUiState
+    data class Error(val message: String) : RingingUiState
+}
 ```
 
 Маршруты NavHost, объект `ShiftRoutes` в `:core:ui`:
@@ -268,6 +269,7 @@ Glance App Widget, подпись в списке виджетов: «завтр
 | hilt ViewModel Compose | 1.3.0 | [hilt-lifecycle-viewmodel-compose](https://dl.google.com/dl/android/maven2/androidx/hilt/hilt-lifecycle-viewmodel-compose/maven-metadata.xml), `minCompileSdk` 35 |
 | DataStore | 1.3.0 | [datastore-preferences](https://dl.google.com/dl/android/maven2/androidx/datastore/datastore-preferences/maven-metadata.xml) |
 | Glance | 1.2.0 | [glance-appwidget](https://dl.google.com/dl/android/maven2/androidx/glance/glance-appwidget/maven-metadata.xml), последний stable |
+| Glance preview | 1.2.0, только debug | [glance-preview](https://dl.google.com/dl/android/maven2/androidx/glance/glance-preview/maven-metadata.xml) (`minCompileSdk` 34) и [glance-appwidget-preview](https://dl.google.com/dl/android/maven2/androidx/glance/glance-appwidget-preview/maven-metadata.xml) (`minCompileSdk` 35). 1.3.0 ещё alpha |
 | core-ktx | 1.18.0 | [core-ktx](https://dl.google.com/dl/android/maven2/androidx/core/core-ktx/maven-metadata.xml), `minCompileSdk` 36 |
 | activity-compose | 1.13.0 | [activity-compose](https://dl.google.com/dl/android/maven2/androidx/activity/activity-compose/maven-metadata.xml), `minCompileSdk` 36 |
 | lifecycle | 2.10.0 | [lifecycle-viewmodel-compose](https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel-compose/maven-metadata.xml) |
@@ -275,5 +277,25 @@ Glance App Widget, подпись в списке виджетов: «завтр
 | coroutines | 1.11.0 | [kotlinx-coroutines-android](https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-android/maven-metadata.xml) |
 | desugar_jdk_libs | 2.1.5 | [desugar_jdk_libs](https://dl.google.com/dl/android/maven2/com/android/tools/desugar_jdk_libs/maven-metadata.xml). Нужен `java.time` на API 24–25 |
 | JUnit | 4.13.2 | Maven Central, последняя линейка JUnit 4 |
+| Robolectric | 4.17 | [robolectric](https://repo1.maven.org/maven2/org/robolectric/robolectric/maven-metadata.xml), последний stable; `DefaultSdkProvider` включает API 36 |
 
 Каталог: `gradle/libs.versions.toml`. Подпись release читает только `SHIFT_KEYSTORE_PATH`, `SHIFT_KEYSTORE_PASSWORD`, `SHIFT_KEY_ALIAS`, `SHIFT_KEY_PASSWORD`. Нет хотя бы одной — `signingConfig` не создаётся.
+
+## Изменения T10b
+
+Закрыты пробелы контрактов из PR экранов. Новых экранов нет: обработчики пишут в уже существующие репозитории, текущие заглушки только читают новые поля, чтобы собираться.
+
+Для UI и feature:
+
+- Календарь. Методы ViewModel, как в feature PR: `setOverride`, `clearOverride`, `setAlarmException`, `clearAlarmException`, `showMonth`. Те же имена у `CalendarEvent` (`SetOverride(date, shiftTypeId?)` и остальные). `shiftTypeId == null` снимает подмену. `CalendarUiState.selectedDay` — деталь выбранного дня.
+- `errorMessage` во всех UiState — `UiText?` (`Res` / `Raw`, `resolve(context)`), тип в `:core:ui`. В PR фич своего `UiText` не было.
+- Свой график остаётся в v1. `ScheduleUiState.editor: PatternEditorUiState?` (имя, дата старта, `slots: List<ShiftTypeId>`, `availableTypes`, текст проверки). События: `AddSlot`, `RemoveSlot`, `MoveSlot`, `SetName`, `SetStartDate`, `Save`. Длина цикла 1..31, это `PatternLimits`. `applyTemplate(CUSTOM)` открывает черновик, `Save` кладёт паттерн в Room и делает его активным.
+- Настройки. `snoozeOptions = [5, 10, 15, 20, 30]`, выбранное значение — `selectedSnooze`. Событие `SettingsEvent.SelectSnooze`. Минуты вне списка отбрасываются.
+- Динамический цвет. `UserSettings.useDynamicColor` в DataStore, ключ `use_dynamic_color`, по умолчанию `true`. `ShiftAlarmTheme(useDynamicColor)` подключает `dynamicLightColorScheme` / `dynamicDarkColorScheme` только на API 31+. Ниже остаётся своя палитра. Событие `SettingsEvent.SetUseDynamicColor`.
+- Будильник. `RingingUiState` — sealed: `Loading`, `Ringing(...)`, `Error(errorMessage: UiText)`. Пока нет имени смены, состояние `Error`.
+- `ShiftRepository.saveAndActivate` пишет цикл и единственный активный флаг одной Room-транзакцией.
+- Direct boot. `RescheduleReceiver`, `AlarmFireReceiver` и `RingingService` — `directBootAware`. `LOCKED_BOOT_COMPLETED` и `USER_UNLOCKED` тоже зовут `scheduleNext`. Снимок активного графика, исключений и следующего триггера лежит в DataStore на `createDeviceProtectedStorageContext`. До разблокировки будильник ставится из снимка. После первой разблокировки снимок переносится в Room/DataStore, если своего графика ещё нет, и снимок обновляется из основного хранилища.
+- Настройки. `notificationPermission`: `Granted` / `Denied` / `NotRequired` (ниже API 33). Флаги возможностей: `exactAlarm`, `fullScreenIntent`.
+- Robolectric 4.17 (Maven Central, stable, SDK 36 есть в `DefaultSdkProvider`) подключён как `testImplementation`. Один тест `ShadowAlarmManager` проверяет, что `scheduleNext` вызывает `setAlarmClock`.
+- Glance preview 1.2.0 совместим с compileSdk 36 и подключён только в debug `:widget` (`glance-preview`, `glance-appwidget-preview`). Отдельный `@Preview` виджета в этой задаче не добавлялся.
+- Общий идентификатор типа для контрактов — value class `ShiftTypeId`. Список типов для выбора: встроенные плюс сохранённые, `ShiftRepository.observeShiftTypes()`.

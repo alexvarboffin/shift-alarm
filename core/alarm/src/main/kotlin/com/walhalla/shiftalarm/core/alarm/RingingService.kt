@@ -12,6 +12,7 @@ import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.UserManager
 import androidx.core.app.NotificationCompat
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import dagger.hilt.android.AndroidEntryPoint
@@ -65,7 +66,11 @@ class RingingService : Service() {
         acquireWakeLock()
         enterForeground(buildNotification(shiftName, triggerAt, snooze, vibration = true))
         scope.launch {
-            val vibration = settingsRepository.settings.first().vibrationEnabled
+            val vibration = if (isUserUnlocked()) {
+                runCatching { settingsRepository.settings.first().vibrationEnabled }.getOrDefault(true)
+            } else {
+                true
+            }
             val notification = buildNotification(shiftName, triggerAt, snooze, vibration)
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
         }
@@ -165,6 +170,11 @@ class RingingService : Service() {
             if (lock.isHeld) lock.release()
         }
         wakeLock = null
+    }
+
+    private fun isUserUnlocked(): Boolean {
+        val userManager = getSystemService(UserManager::class.java) ?: return true
+        return userManager.isUserUnlocked
     }
 
     private fun channelId(vibration: Boolean): String =

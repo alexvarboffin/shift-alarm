@@ -1,5 +1,6 @@
 package com.walhalla.shiftalarm.core.ui
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,11 +11,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 private val LightColors = lightColorScheme(
@@ -43,10 +47,19 @@ private val DarkColors = darkColorScheme(
 @Composable
 fun ShiftAlarmTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    useDynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
+    val dynamic = useDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val context = LocalContext.current
+    val colorScheme = when {
+        dynamic && darkTheme -> dynamicDarkColorScheme(context)
+        dynamic -> dynamicLightColorScheme(context)
+        darkTheme -> DarkColors
+        else -> LightColors
+    }
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = colorScheme,
         content = content,
     )
 }

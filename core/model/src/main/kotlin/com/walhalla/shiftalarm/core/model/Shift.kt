@@ -25,6 +25,19 @@ data class ShiftType(
     val alarmTime: LocalTime?,
 )
 
+/** Stable id of a [ShiftType]. UI contracts use this instead of a raw string. */
+@JvmInline
+value class ShiftTypeId(val value: String)
+
+/** Projection of a shift type for pickers. Does not replace [ShiftType] in storage. */
+data class ShiftTypeOption(
+    val id: ShiftTypeId,
+    val name: String,
+    val kind: ShiftKind,
+    val colorArgb: Int,
+    val alarmTime: LocalTime?,
+)
+
 enum class PatternTemplate {
     TWO_TWO,
     THREE_THREE,
@@ -78,6 +91,7 @@ data class AlarmException(
 data class UserSettings(
     val snoozeMinutes: Int = DEFAULT_SNOOZE_MINUTES,
     val vibrationEnabled: Boolean = true,
+    val useDynamicColor: Boolean = true,
     val pendingSnoozeAtEpochMillis: Long? = null,
     val pendingSnoozeShiftName: String = "",
 ) {

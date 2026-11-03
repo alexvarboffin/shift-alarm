@@ -68,7 +68,9 @@ object ShiftTemplates {
         startDate: LocalDate,
         cycle: List<ShiftType>,
     ): ShiftPattern {
-        require(cycle.isNotEmpty()) { "A custom pattern needs at least one shift." }
+        require(cycle.size in PatternLimits.MIN_SLOTS..PatternLimits.MAX_SLOTS) {
+            "A custom pattern needs ${PatternLimits.MIN_SLOTS}..${PatternLimits.MAX_SLOTS} shifts."
+        }
         return ShiftPattern(
             id = id,
             name = name,

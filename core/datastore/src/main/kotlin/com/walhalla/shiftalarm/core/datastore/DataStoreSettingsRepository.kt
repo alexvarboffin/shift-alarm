@@ -22,6 +22,7 @@ class DataStoreSettingsRepository @Inject constructor(
         UserSettings(
             snoozeMinutes = prefs[Keys.SNOOZE_MINUTES] ?: UserSettings.DEFAULT_SNOOZE_MINUTES,
             vibrationEnabled = prefs[Keys.VIBRATION] ?: true,
+            useDynamicColor = prefs[Keys.DYNAMIC_COLOR] ?: true,
             pendingSnoozeAtEpochMillis = prefs[Keys.SNOOZE_EPOCH],
             pendingSnoozeShiftName = prefs[Keys.SNOOZE_NAME] ?: "",
         )
@@ -34,6 +35,10 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setVibrationEnabled(enabled: Boolean) {
         dataStore.edit { prefs -> prefs[Keys.VIBRATION] = enabled }
+    }
+
+    override suspend fun setUseDynamicColor(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.DYNAMIC_COLOR] = enabled }
     }
 
     override suspend fun setPendingSnooze(epochMillis: Long?, shiftName: String) {
@@ -51,6 +56,7 @@ class DataStoreSettingsRepository @Inject constructor(
     private object Keys {
         val SNOOZE_MINUTES = intPreferencesKey("snooze_minutes")
         val VIBRATION = booleanPreferencesKey("vibration_enabled")
+        val DYNAMIC_COLOR = booleanPreferencesKey("use_dynamic_color")
         val SNOOZE_EPOCH = longPreferencesKey("pending_snooze_epoch_millis")
         val SNOOZE_NAME = stringPreferencesKey("pending_snooze_shift_name")
     }

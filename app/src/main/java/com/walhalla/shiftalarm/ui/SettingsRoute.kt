@@ -1,10 +1,12 @@
 package com.walhalla.shiftalarm.ui
 
 import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,14 +22,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -39,19 +37,17 @@ import com.walhalla.shiftalarm.core.ui.ShiftPane
 @Composable
 fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    val appContext = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var notificationsGranted by remember { mutableStateOf(hasNotificationPermission(context)) }
     val notificationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        notificationsGranted = granted
+    ) {
+        viewModel.refreshPermissions()
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 viewModel.refreshPermissions()
-                notificationsGranted = hasNotificationPermission(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -59,29 +55,32 @@ fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
     }
     SettingsScreen(
         state = state,
-        notificationsGranted = notificationsGranted,
-        onSnoozeSelected = viewModel::setSnoozeMinutes,
+        notificationPermission = state.notificationPermission,
+        onSnoozeSelected = { viewModel.onEvent(SettingsEvent.SelectSnooze(it)) },
         onVibration = viewModel::setVibrationEnabled,
+        onDynamicColor = { viewModel.onEvent(SettingsEvent.SetUseDynamicColor(it)) },
         onRequestNotifications = {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         },
         onRequestExactAlarm = {
-            AlarmPermissionIntents.requestExactAlarm(context)?.let(context::startActivity)
+            AlarmPermissionIntents.requestExactAlarm(appContext)?.let(appContext::startActivity)
         },
         onRequestFullScreen = {
-            AlarmPermissionIntents.manageFullScreenIntent(context)?.let(context::startActivity)
+            AlarmPermissionIntents.manageFullScreenIntent(appContext)?.let(appContext::startActivity)
         },
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     state: SettingsUiState,
-    notificationsGranted: Boolean,
+    notificationPermission: NotificationPermission,
     onSnoozeSelected: (Int) -> Unit,
     onVibration: (Boolean) -> Unit,
+    onDynamicColor: (Boolean) -> Unit,
     onRequestNotifications: () -> Unit,
     onRequestExactAlarm: () -> Unit,
     onRequestFullScreen: () -> Unit,
@@ -92,17 +91,19 @@ fun SettingsScreen(
             CircularProgressIndicator()
             return@ShiftPane
         }
-        state.errorMessage?.let {
-            Text(it, color = MaterialTheme.colorScheme.error)
+        state.errorMessage?.let { message ->
+            Text(message.resolve(LocalContext.current), color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(12.dp))
         }
         Text("Отложить на", style = MaterialTheme.typography.titleMedium)
-        Row(Modifier.padding(vertical = 8.dp)) {
-            listOf(5, 10, 15, 30).forEach { minutes ->
+        FlowRow(
+            modifier = Modifier.padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            state.snoozeOptions.forEach { minutes ->
                 Button(
                     onClick = { onSnoozeSelected(minutes) },
-                    modifier = Modifier.padding(end = 8.dp),
-                    enabled = state.snoozeMinutes != minutes,
+                    enabled = state.selectedSnooze != minutes,
                 ) {
                     Text("$minutes мин")
                 }
@@ -119,23 +120,42 @@ fun SettingsScreen(
             text = "Вибрация выбирает канал уведомления: с вибрацией или без. Звук — системный будильник.",
             style = MaterialTheme.typography.bodySmall,
         )
-        Spacer(Modifier.height(16.dp))
-        PermissionRow(
-            title = "Уведомления",
-            granted = notificationsGranted,
-            actionLabel = "Разрешить",
-            onAction = onRequestNotifications,
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Цвет системы", modifier = Modifier.weight(1f))
+            Switch(checked = state.useDynamicColor, onCheckedChange = onDynamicColor)
+        }
+        Text(
+            text = "На Android 12 и новее тема берёт цвета обоев. Ниже остаётся своя палитра.",
+            style = MaterialTheme.typography.bodySmall,
         )
+        Spacer(Modifier.height(16.dp))
+        Text("Уведомления", style = MaterialTheme.typography.titleMedium)
+        Text(
+            when (notificationPermission) {
+                NotificationPermission.Granted -> "Разрешено"
+                NotificationPermission.Denied -> "Не разрешено"
+                NotificationPermission.NotRequired -> "Не требуется до Android 13"
+            },
+        )
+        if (notificationPermission == NotificationPermission.Denied) {
+            Button(onClick = onRequestNotifications, modifier = Modifier.padding(vertical = 8.dp)) {
+                Text("Разрешить")
+            }
+        }
+        Spacer(Modifier.height(12.dp))
         PermissionRow(
             title = "Точный будильник",
-            granted = state.canScheduleExactAlarms,
+            granted = state.exactAlarm,
             detail = "Без него смена не прозвенит вовремя.",
             actionLabel = "Открыть настройки",
             onAction = onRequestExactAlarm,
         )
         PermissionRow(
             title = "Показ на заблокированном экране",
-            granted = state.canUseFullScreenIntent,
+            granted = state.fullScreenIntent,
             detail = "Нужен, чтобы экран звонка открылся сам.",
             actionLabel = "Открыть настройки",
             onAction = onRequestFullScreen,
@@ -164,10 +184,3 @@ private fun PermissionRow(
     Spacer(Modifier.height(12.dp))
 }
 
-private fun hasNotificationPermission(context: android.content.Context): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
-    return ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.POST_NOTIFICATIONS,
-    ) == PackageManager.PERMISSION_GRANTED
-}
