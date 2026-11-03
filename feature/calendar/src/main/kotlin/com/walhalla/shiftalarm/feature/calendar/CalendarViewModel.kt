@@ -19,9 +19,9 @@ import com.walhalla.shiftalarm.core.model.ShiftTypeId
 import com.walhalla.shiftalarm.core.model.ShiftTypeOption
 import com.walhalla.shiftalarm.core.ui.UiText
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Clock
 import java.time.LocalDate
 import java.time.YearMonth
-import java.time.ZoneId
 import java.time.ZonedDateTime
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,8 +38,9 @@ class CalendarViewModel @Inject constructor(
     private val shiftRepository: ShiftRepository,
     private val alarmRepository: AlarmRepository,
     private val widgetRefresher: HomeWidgetRefresher,
+    private val clock: Clock,
 ) : ViewModel() {
-    private val month = MutableStateFlow(YearMonth.now())
+    private val month = MutableStateFlow(YearMonth.from(LocalDate.now(clock)))
     private val selectedDate = MutableStateFlow<LocalDate?>(null)
     private val commandError = MutableStateFlow<UiText?>(null)
 
@@ -226,7 +227,7 @@ class CalendarViewModel @Inject constructor(
         shift: ShiftType?,
         exception: StoredAlarmException?,
     ): ZonedDateTime? {
-        val zone = ZoneId.systemDefault()
+        val zone = clock.zone
         val custom = exception?.customTime
         return when {
             exception?.enabled == false -> null

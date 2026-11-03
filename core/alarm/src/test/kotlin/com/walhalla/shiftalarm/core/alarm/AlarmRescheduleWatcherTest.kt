@@ -9,6 +9,7 @@ import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftRepository
 import com.walhalla.shiftalarm.core.model.ShiftType
 import com.walhalla.shiftalarm.core.model.UserSettings
+import java.time.Clock
 import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,7 @@ class AlarmRescheduleWatcherTest {
             WatchAlarmRepository(),
             WatchSettingsRepository(),
             scheduler,
+            Clock.systemUTC(),
             CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
         )
 

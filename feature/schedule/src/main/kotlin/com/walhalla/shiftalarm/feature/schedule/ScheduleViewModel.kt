@@ -12,6 +12,7 @@ import com.walhalla.shiftalarm.core.model.ShiftTypeCatalog
 import com.walhalla.shiftalarm.core.model.ShiftTypeId
 import com.walhalla.shiftalarm.core.ui.UiText
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Clock
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
@@ -30,6 +31,7 @@ import kotlinx.coroutines.launch
 class ScheduleViewModel @Inject constructor(
     private val repository: ShiftRepository,
     private val widgetRefresher: HomeWidgetRefresher,
+    private val clock: Clock,
 ) : ViewModel() {
     private val editor = MutableStateFlow<EditorDraft?>(null)
 
@@ -72,7 +74,7 @@ class ScheduleViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            val today = LocalDate.now()
+            val today = LocalDate.now(clock)
             val pattern = when (template) {
                 PatternTemplate.TWO_TWO -> ShiftTemplates.twoTwo(today)
                 PatternTemplate.THREE_THREE -> ShiftTemplates.threeThree(today)
@@ -88,7 +90,7 @@ class ScheduleViewModel @Inject constructor(
     fun openCustomEditor() {
         editor.value = EditorDraft(
             name = "Свой график",
-            startDate = LocalDate.now(),
+            startDate = LocalDate.now(clock),
             slots = emptyList(),
         )
     }

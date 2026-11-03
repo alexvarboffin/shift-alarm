@@ -16,6 +16,7 @@ import android.os.UserManager
 import androidx.core.app.NotificationCompat
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import dagger.hilt.android.AndroidEntryPoint
+import java.time.Clock
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
@@ -28,6 +29,8 @@ class RingingService : Service() {
     @Inject lateinit var settingsRepository: SettingsRepository
 
     @Inject lateinit var ringingLaunchIntent: RingingLaunchIntent
+
+    @Inject lateinit var clock: Clock
 
     @Inject @ApplicationScope lateinit var scope: CoroutineScope
 
@@ -59,8 +62,8 @@ class RingingService : Service() {
 
     private fun startRinging(intent: Intent?) {
         val shiftName = intent?.getStringExtra(AlarmIntents.EXTRA_SHIFT_NAME).orEmpty().ifBlank { "Смена" }
-        val triggerAt = intent?.getLongExtra(AlarmIntents.EXTRA_TRIGGER_AT_MILLIS, System.currentTimeMillis())
-            ?: System.currentTimeMillis()
+        val now = clock.millis()
+        val triggerAt = intent?.getLongExtra(AlarmIntents.EXTRA_TRIGGER_AT_MILLIS, now) ?: now
         val snooze = intent?.getBooleanExtra(AlarmIntents.EXTRA_SNOOZE, false) ?: false
         ringingShiftName = shiftName
         acquireWakeLock()
@@ -107,7 +110,7 @@ class RingingService : Service() {
         val snoozeAction = serviceAction(AlarmIntents.REQUEST_SNOOZE, ACTION_SNOOZE)
         val title = if (snooze) "Повтор: $shiftName" else shiftName
         val text = if (snooze) "Отложенный сигнал смены" else "Пора на смену"
-        return NotificationCompat.Builder(this, channelId(vibration))
+        return NotificationCompat.Builder(this, ringingChannelId(vibration))
             .setSmallIcon(R.drawable.ic_stat_shift)
             .setContentTitle(title)
             .setContentText(text)
@@ -134,8 +137,10 @@ class RingingService : Service() {
     private fun ensureChannel(vibration: Boolean) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java)
-        val id = channelId(vibration)
-        if (manager.getNotificationChannel(id) != null) return
+        val id = ringingChannelId(vibration)
+        val existing = manager.getNotificationChannel(id)
+        if (existing != null && existing.shouldVibrate() == vibration) return
+        if (existing != null) manager.deleteNotificationChannel(id)
         val name = if (vibration) "Будильник смены" else "Будильник смены без вибрации"
         // IMPORTANCE_HIGH is the heads-up channel used when full-screen intent is denied.
         val channel = NotificationChannel(id, name, NotificationManager.IMPORTANCE_HIGH).apply {
@@ -176,20 +181,21 @@ class RingingService : Service() {
         return userManager.isUserUnlocked
     }
 
-    private fun channelId(vibration: Boolean): String =
-        if (vibration) CHANNEL_VIBRATE else CHANNEL_QUIET
-
     companion object {
         const val ACTION_FIRE: String = "com.walhalla.shiftalarm.action.RINGING_FIRE"
         const val ACTION_STOP: String = "com.walhalla.shiftalarm.action.RINGING_STOP"
         const val ACTION_SNOOZE: String = "com.walhalla.shiftalarm.action.RINGING_SNOOZE"
 
         private const val NOTIFICATION_ID: Int = 7101
-        private const val CHANNEL_VIBRATE: String = "shift_alarm_ring_vibrate"
-        private const val CHANNEL_QUIET: String = "shift_alarm_ring_quiet"
         private const val WAKE_LOCK_TIMEOUT_MILLIS: Long = 10 * 60 * 1000L
     }
 }
+
+internal const val RINGING_CHANNEL_VIBRATE: String = "shift_alarm_ring_vibrate"
+internal const val RINGING_CHANNEL_QUIET: String = "shift_alarm_ring_quiet"
+
+internal fun ringingChannelId(vibration: Boolean): String =
+    if (vibration) RINGING_CHANNEL_VIBRATE else RINGING_CHANNEL_QUIET
 
 /**
  * Full-screen intent when the app may use one. Otherwise a high-priority heads-up

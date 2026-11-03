@@ -12,6 +12,7 @@ import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.ui.UiText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.time.Clock
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,6 +28,7 @@ class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val alarmScheduler: AlarmScheduler,
     @ApplicationContext private val context: Context,
+    private val clock: Clock,
 ) : ViewModel() {
     private val permissions = MutableStateFlow(readPermissions())
 
@@ -58,6 +60,7 @@ class SettingsViewModel @Inject constructor(
 
     fun refreshPermissions() {
         permissions.update { readPermissions() }
+        viewModelScope.launch { alarmScheduler.scheduleNext(clock.millis()) }
     }
 
     fun onEvent(event: SettingsEvent) {

@@ -25,6 +25,8 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.walhalla.shiftalarm.core.model.HomeWidgetRefresher
 import com.walhalla.shiftalarm.core.model.ShiftRepository
+import java.time.Clock
+import java.time.LocalDate
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.EntryPoint
@@ -42,7 +44,7 @@ class TomorrowShiftWidget : GlanceAppWidget() {
         val repository = entryPoint.shiftRepository()
         val pattern = repository.observeActivePattern().first()
         val overrides = repository.observeOverrides().first().associateBy { it.date }
-        val label = tomorrowLabel(pattern, overrides)
+        val label = tomorrowLabel(pattern, overrides, LocalDate.now(entryPoint.clock()))
         val openApp = actionStartActivity(openAppIntent(context))
         provideContent {
             Column(
@@ -83,6 +85,8 @@ private const val MAIN_ACTIVITY: String = "com.walhalla.shiftalarm.MainActivity"
 @InstallIn(SingletonComponent::class)
 interface WidgetEntryPoint {
     fun shiftRepository(): ShiftRepository
+
+    fun clock(): Clock
 }
 
 @Singleton

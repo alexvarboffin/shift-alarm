@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
+import java.time.Clock
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -13,6 +14,8 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class AlarmFireReceiver : BroadcastReceiver() {
     @Inject lateinit var scheduler: AlarmScheduler
+
+    @Inject lateinit var clock: Clock
 
     @Inject @ApplicationScope lateinit var scope: CoroutineScope
 
@@ -30,14 +33,12 @@ class AlarmFireReceiver : BroadcastReceiver() {
         } catch (error: RuntimeException) {
             Log.e(TAG, "Ringing service did not start", error)
         }
-        val firedAt = intent.getLongExtra(
-            AlarmIntents.EXTRA_TRIGGER_AT_MILLIS,
-            System.currentTimeMillis(),
-        )
+        val now = clock.millis()
+        val firedAt = intent.getLongExtra(AlarmIntents.EXTRA_TRIGGER_AT_MILLIS, now)
         val pending = goAsync()
         scope.launch {
             try {
-                scheduler.scheduleNext(nowEpochMillis = firedAt)
+                scheduler.scheduleNext(nowEpochMillis = maxOf(firedAt, now))
             } catch (error: Exception) {
                 Log.e(TAG, "Reschedule after fire failed", error)
             } finally {

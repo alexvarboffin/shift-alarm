@@ -15,6 +15,7 @@ import com.walhalla.shiftalarm.core.model.ShiftTemplates
 import com.walhalla.shiftalarm.core.model.ShiftType
 import com.walhalla.shiftalarm.core.model.UserSettings
 import java.io.File
+import java.time.Clock
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -49,6 +50,7 @@ class AlarmManagerAlarmSchedulerTest {
             FakeAlarmRepository(),
             FakeSettingsRepository(),
             DeviceProtectedAlarmStore.create(File(context.cacheDir, "exact-on.preferences_pb")),
+            Clock.systemDefaultZone(),
         )
         val notBefore = LocalDateTime.of(2026, 1, 1, 5, 0)
             .atZone(zone)
@@ -80,6 +82,7 @@ class AlarmManagerAlarmSchedulerTest {
             FakeAlarmRepository(),
             FakeSettingsRepository(),
             DeviceProtectedAlarmStore.create(File(context.cacheDir, "exact-off.preferences_pb")),
+            Clock.systemDefaultZone(),
         )
         val notBefore = LocalDateTime.of(2026, 1, 1, 5, 0)
             .atZone(zone)

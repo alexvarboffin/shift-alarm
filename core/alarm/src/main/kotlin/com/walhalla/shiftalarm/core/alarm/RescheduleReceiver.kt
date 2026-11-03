@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import dagger.hilt.android.AndroidEntryPoint
+import java.time.Clock
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -22,6 +23,8 @@ import kotlinx.coroutines.launch
 class RescheduleReceiver : BroadcastReceiver() {
     @Inject lateinit var scheduler: AlarmScheduler
 
+    @Inject lateinit var clock: Clock
+
     @Inject @ApplicationScope lateinit var scope: CoroutineScope
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -33,7 +36,7 @@ class RescheduleReceiver : BroadcastReceiver() {
         val pending = goAsync()
         scope.launch {
             try {
-                scheduler.scheduleNext()
+                scheduler.scheduleNext(clock.millis())
             } catch (error: Exception) {
                 Log.e(TAG, "Reschedule failed for $action", error)
             } finally {
