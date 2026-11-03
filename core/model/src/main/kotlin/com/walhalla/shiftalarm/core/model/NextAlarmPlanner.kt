@@ -28,8 +28,8 @@ object NextAlarmPlanner {
         var date = now.toLocalDate()
         repeat(horizonDays) {
             val resolved = ShiftCalculator.shiftFor(date, pattern, overrides, zone)
-            val trigger = triggerAt(resolved, alarmExceptions[date], zone)
-            if (trigger != null && trigger.toInstant().isAfter(now.toInstant())) {
+            val trigger = upcoming(triggerAt(resolved, alarmExceptions[date], zone), now)
+            if (trigger != null) {
                 val candidate = PlannedAlarm(triggerAt = trigger, shift = resolved.shift, date = date)
                 val current = best
                 if (current == null || trigger.toInstant().isBefore(current.triggerAt.toInstant())) {
@@ -49,5 +49,17 @@ object NextAlarmPlanner {
         exception?.enabled == false -> null
         exception?.customTime != null -> ShiftAlarms.exceptionInstant(exception.customTime, zone)
         else -> resolved.alarmAt
+    }
+
+    /**
+     * Fall overlap: [ZonedDateTime.of] keeps the earlier offset. If that instant is
+     * already at or before [now], the same local time with [ZonedDateTime.withLaterOffsetAtOverlap]
+     * is still today. The next calendar day is used only when that one has passed too.
+     */
+    private fun upcoming(trigger: ZonedDateTime?, now: ZonedDateTime): ZonedDateTime? {
+        if (trigger == null) return null
+        if (trigger.toInstant().isAfter(now.toInstant())) return trigger
+        val later = trigger.withLaterOffsetAtOverlap()
+        return later.takeIf { it.toInstant().isAfter(now.toInstant()) }
     }
 }

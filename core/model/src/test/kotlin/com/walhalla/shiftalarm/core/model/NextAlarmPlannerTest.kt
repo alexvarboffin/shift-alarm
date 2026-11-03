@@ -64,6 +64,35 @@ class NextAlarmPlannerTest {
     }
 
     @Test
+    fun fallBackOverlapDoesNotJumpADayWhenTheEarlierInstantHasPassed() {
+        val day = LocalDate.of(2026, 10, 25)
+        val shift = ShiftType(
+            id = "overlap",
+            kind = ShiftKind.NIGHT,
+            name = "Ночь",
+            colorLight = 0L,
+            colorDark = 0L,
+            startTime = LocalTime.of(2, 45),
+            alarmLeadMinutes = 0,
+        )
+        val pattern = ShiftPattern(
+            id = "one",
+            name = "одна",
+            template = PatternTemplate.CUSTOM,
+            startDate = day,
+            cycle = listOf(shift),
+        )
+        val earlier = ZonedDateTime.of(day, LocalTime.of(2, 45), berlin)
+        val now = earlier.plusMinutes(30)
+        val planned = NextAlarmPlanner.earliest(now, pattern)
+        val expected = earlier.withLaterOffsetAtOverlap()
+        assertEquals(day, planned?.triggerAt?.toLocalDate())
+        assertEquals(LocalTime.of(2, 45), planned?.triggerAt?.toLocalTime())
+        assertEquals(ZoneOffset.ofHours(1), planned?.triggerAt?.offset)
+        assertEquals(expected, planned?.triggerAt)
+    }
+
+    @Test
     fun earliestPicksTodaysAlarmOverTomorrowsEarlierStart() {
         val today = LocalDate.of(2026, 6, 1)
         val pattern = ShiftPattern(

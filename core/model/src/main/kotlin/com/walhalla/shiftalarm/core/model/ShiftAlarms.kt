@@ -10,6 +10,8 @@ import java.time.ZonedDateTime
  *
  * [ZonedDateTime.of] resolves the local start in [zone]: a spring gap moves forward
  * by the length of the gap, and a fall overlap keeps the earlier offset.
+ * [NextAlarmPlanner] retries [ZonedDateTime.withLaterOffsetAtOverlap] when that
+ * earlier instant is already at or before now, before it looks at the next day.
  * The lead is then subtracted on the timeline, so the alarm can be the previous day.
  */
 object ShiftAlarms {

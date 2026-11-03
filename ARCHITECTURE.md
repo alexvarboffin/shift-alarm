@@ -79,10 +79,11 @@ Hilt проверяет граф при компиляции: пропущенн
 
 Момент звонка считает только `ShiftAlarms`. Старт смены — `ZonedDateTime.of(shiftDate, startTime, zone)`, затем минус `alarmLeadMinutes`. Вычитание идёт по временной шкале, поэтому ночная смена 00:30 с упреждением 90 минут звенит в 23:00 предыдущего дня. Поле `alarmTime` удалено.
 
-Правила `ZonedDateTime.of` в системной зоне и есть правило DST:
+Правила DST считаются в системной зоне:
 
-- весенний провал (несуществующее локальное время) сдвигается вперёд на длину провала;
-- осеннее перекрытие (неоднозначное время) берёт более раннее смещение.
+- весенний провал (несуществующее локальное время) сдвигается вперёд на длину провала — так делает `ZonedDateTime.of`;
+- осеннее перекрытие: номинальный момент берёт более раннее смещение (`ZonedDateTime.of`);
+- если этот ранний момент уже не позже `now`, `NextAlarmPlanner` пробует то же локальное время с `withLaterOffsetAtOverlap()` в тот же календарный день. Следующий день берётся только когда и позднее смещение уже прошло. Пример: 2026-10-25 02:45 в Europe/Berlin, `now` между первым и вторым наступлением — звонок в 02:45+01:00 того же дня, а не через сутки.
 
 `TIME_SET` и `TIMEZONE_CHANGED` заново вызывают `scheduleNext`, поэтому после перевода часов момент пересчитывается.
 
@@ -329,8 +330,8 @@ Glance App Widget, подпись в списке виджетов: «завтр
 - У `ShiftType` и `ShiftTypeOption` поля `startTime: LocalTime?` и `alarmLeadMinutes: Int` (0..1440, по умолчанию 90). `alarmTime` убран. `OFF` и `AFTER_NIGHT` — `startTime = null`.
 - Редактор графика: `PatternEditorEvent.SetStartTime(shiftTypeId, startTime)`, `SetLeadMinutes(shiftTypeId, minutes)` и `Cancel`. Черновик хранит правки отдельно и при `Save` копирует тип, если время или упреждение изменились. `Cancel` закрывает черновик и ничего не пишет. Недопустимое упреждение даёт `errorMessage`.
 - `CalendarEvent.SetAlarmException.customTime` и `SelectedDayDetail.customAlarmTime` — абсолютный `LocalDateTime?`, не `LocalTime`.
-- `ResolvedShift.alarmAt` и `PlannedAlarm.triggerAt` — `ZonedDateTime?`. Момент: `ZonedDateTime.of(дата смены, startTime, системная зона) minus alarmLeadMinutes`.
-- Один расчёт: `AlarmScheduler.scheduleNext(nowEpochMillis)` → `NextAlarmPlanner.earliest`. Горизонт около двух длин цикла. Берётся самый ранний момент строго после `now`.
+- `ResolvedShift.alarmAt` и `PlannedAlarm.triggerAt` — `ZonedDateTime?`. Номинальный момент: `ZonedDateTime.of(дата смены, startTime, системная зона) minus alarmLeadMinutes` (при перекрытии — раннее смещение). Если он уже не позже `now`, планировщик берёт `withLaterOffsetAtOverlap()` того же дня.
+- Один расчёт: `AlarmScheduler.scheduleNext(nowEpochMillis)` → `NextAlarmPlanner.earliest`. Горизонт около двух длин цикла. Берётся самый ранний момент строго после `now`, с учётом позднего смещения в день осеннего перекрытия.
 - Room версии 2. `shift_types`: `startHour`, `startMinute`, `alarmLeadMinutes`. `alarm_exceptions`: `customEpochDay`, `customHour`, `customMinute`. Миграция `MIGRATION_1_2` переносит старые `alarmHour`/`alarmMinute` в начало смены и ставит упреждение 90; старое время исключения становится абсолютным локальным временем того же дня.
 
 ## Изменения T10d
