@@ -119,7 +119,8 @@ private fun encodeShift(shift: ShiftType): JSONObject = JSONObject()
     .put("id", shift.id)
     .put("kind", shift.kind.name)
     .put("name", shift.name)
-    .put("colorArgb", shift.colorArgb)
+    .put("colorLight", shift.colorLight)
+    .put("colorDark", shift.colorDark)
     .put("startHour", shift.startTime?.hour ?: JSONObject.NULL)
     .put("startMinute", shift.startTime?.minute ?: JSONObject.NULL)
     .put("alarmLeadMinutes", shift.alarmLeadMinutes)
@@ -127,11 +128,13 @@ private fun encodeShift(shift: ShiftType): JSONObject = JSONObject()
 private fun decodeShift(json: JSONObject): ShiftType {
     val hour = json.optIntOrNull("startHour")
     val minute = json.optIntOrNull("startMinute")
+    val legacy = json.optLongOrNull("colorArgb")
     return ShiftType(
         id = json.getString("id"),
         kind = ShiftKind.valueOf(json.getString("kind")),
         name = json.getString("name"),
-        colorArgb = json.getInt("colorArgb"),
+        colorLight = json.optLongOrNull("colorLight") ?: legacy ?: 0L,
+        colorDark = json.optLongOrNull("colorDark") ?: legacy ?: 0L,
         startTime = if (hour != null && minute != null) LocalTime.of(hour, minute) else null,
         alarmLeadMinutes = json.optInt("alarmLeadMinutes", ShiftType.DEFAULT_LEAD_MINUTES),
     )

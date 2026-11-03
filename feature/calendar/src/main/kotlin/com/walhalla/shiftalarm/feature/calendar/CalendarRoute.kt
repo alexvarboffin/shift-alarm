@@ -1,6 +1,7 @@
 package com.walhalla.shiftalarm.feature.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -160,13 +161,14 @@ private fun MonthGrid(
                                     MaterialTheme.colorScheme.onSurface
                                 },
                             )
-                            if (day.colorArgb != null) {
+                            val dot = if (isSystemInDarkTheme()) day.colorDark else day.colorLight
+                            if (dot != null) {
                                 Box(
                                     Modifier
                                         .padding(top = 4.dp)
                                         .size(8.dp)
                                         .clip(CircleShape)
-                                        .background(Color(day.colorArgb)),
+                                        .background(Color(dot.toInt())),
                                 )
                             }
                             Text(

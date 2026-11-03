@@ -181,7 +181,8 @@ class CalendarViewModel @Inject constructor(
             shiftTypeId = resolved?.shift?.id?.let(::ShiftTypeId),
             shiftName = resolved?.shift?.name,
             shiftKind = resolved?.shift?.kind,
-            colorArgb = resolved?.shift?.colorArgb,
+            colorLight = resolved?.shift?.colorLight,
+            colorDark = resolved?.shift?.colorDark,
             hasOverride = resolved?.source == ShiftSource.OVERRIDE,
             alarmEnabled = alarm != null,
             startTime = resolved?.shift?.startTime,
@@ -203,7 +204,7 @@ class CalendarViewModel @Inject constructor(
         return (1..month.lengthOfMonth()).map { day ->
             val date = month.atDay(day)
             if (pattern == null || pattern.cycle.isEmpty()) {
-                CalendarDayUi(date, null, null, null, false, null)
+                CalendarDayUi(date, null, null, null, null, false, null)
             } else {
                 val resolved = ShiftCalculator.shiftFor(date, pattern, overrideMap)
                 val alarm = alarmInstant(date, resolved.shift, exceptionMap[date])
@@ -211,7 +212,8 @@ class CalendarViewModel @Inject constructor(
                     date = date,
                     shiftName = resolved.shift.name,
                     shiftKind = resolved.shift.kind,
-                    colorArgb = resolved.shift.colorArgb,
+                    colorLight = resolved.shift.colorLight,
+                    colorDark = resolved.shift.colorDark,
                     hasOverride = resolved.source == ShiftSource.OVERRIDE,
                     alarmLabel = alarm?.toLocalTime()?.let { "%02d:%02d".format(it.hour, it.minute) },
                 )

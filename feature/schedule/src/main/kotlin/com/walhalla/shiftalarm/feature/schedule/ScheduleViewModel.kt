@@ -138,6 +138,7 @@ class ScheduleViewModel @Inject constructor(
                 )
             }
             PatternEditorEvent.Save -> viewModelScope.launch { save(current) }
+            PatternEditorEvent.Cancel -> editor.value = null
         }
     }
 

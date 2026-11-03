@@ -61,7 +61,9 @@ Hilt проверяет граф при компиляции: пропущенн
 
 ## Домен и шаблоны
 
-`ShiftType` — слот цикла: `DAY`, `NIGHT`, `AFTER_NIGHT` (отсыпной), `OFF` или `CUSTOM` со своим именем и цветом. `startTime: LocalTime?` — начало смены; `null` у `OFF` и `AFTER_NIGHT`, они не звонят. `alarmLeadMinutes` — упреждение 0..1440 минут, по умолчанию 90. Отдельного поля `alarmTime` нет.
+`ShiftType` — слот цикла: `DAY`, `NIGHT`, `AFTER_NIGHT` (отсыпной), `OFF` или `CUSTOM` со своим именем и цветом. Цвет — пара непрозрачных ARGB `Long`: `colorLight` и `colorDark` (`0xAARRGGBB`, не упакованный цвет Compose). `startTime: LocalTime?` — начало смены; `null` у `OFF` и `AFTER_NIGHT`, они не звонят. `alarmLeadMinutes` — упреждение 0..1440 минут, по умолчанию 90. Отдельного поля `alarmTime` нет.
+
+Встроенные пары: день `#A16207` / `#F4B000`, ночь `#1E3A8A` / `#3B82F6`, отсыпной `#0F766E` / `#0D9488`, сутки `#312E81` / `#6366F1`. Выходной в обеих темах `#6B7280`. Свой тип, у которого был один `colorArgb`, после миграции получает этот цвет и в светлой, и в тёмной теме.
 
 `ShiftPattern` — упорядоченный цикл и `startDate` (этот день соответствует индексу 0). Даты до старта тоже попадают в цикл через `floorMod`.
 
@@ -106,7 +108,7 @@ object ShiftAlarms {
 
 ## Хранение
 
-Room (`shift-alarm.db`, схема версии 2 в `core/database/schemas`, миграция `1 → 2`) хранит то, что выбирают по дате и связывают:
+Room (`shift-alarm.db`, схема версии 3 в `core/database/schemas`, миграции `1 → 2` и `2 → 3`) хранит то, что выбирают по дате и связывают:
 
 - `shift_types` — встроенные и пользовательские типы;
 - `patterns` и `pattern_slots` — цикл и флаг единственного активного графика;
@@ -307,7 +309,7 @@ Glance App Widget, подпись в списке виджетов: «завтр
 
 - Календарь. Методы ViewModel, как в feature PR: `setOverride`, `clearOverride`, `setAlarmException`, `clearAlarmException`, `showMonth`. Те же имена у `CalendarEvent` (`SetOverride(date, shiftTypeId?)` и остальные). `shiftTypeId == null` снимает подмену. `CalendarUiState.selectedDay` — деталь выбранного дня.
 - `errorMessage` во всех UiState — `UiText?`. Единственный тип в `:core:ui`: sealed `Res(@StringRes id, args)` и `Raw(String)`. `Raw` оставлен для уже готового текста (проверка ввода, `Throwable.message`); обычные строки экрана — `Res`. `resolve(context)` и `@Composable resolve()` дают строку. `String.asUiText()` и `@StringRes Int.asUiText()` собирают значение. В PR фич своего `UiText` не было.
-- Свой график остаётся в v1. `ScheduleUiState.editor: PatternEditorUiState?` (имя, дата старта, `slots: List<ShiftTypeId>`, `availableTypes`, текст проверки). События: `AddSlot`, `RemoveSlot`, `MoveSlot`, `SetName`, `SetStartDate`, `SetStartTime`, `SetLeadMinutes`, `Save`. Длина цикла 1..31, это `PatternLimits`. `applyTemplate(CUSTOM)` открывает черновик, `Save` кладёт паттерн в Room и делает его активным. `SetStartTime` / `SetLeadMinutes` меняют начало и упреждение типа в черновике.
+- Свой график остаётся в v1. `ScheduleUiState.editor: PatternEditorUiState?` (имя, дата старта, `slots: List<ShiftTypeId>`, `availableTypes`, текст проверки). События: `AddSlot`, `RemoveSlot`, `MoveSlot`, `SetName`, `SetStartDate`, `SetStartTime`, `SetLeadMinutes`, `Save`, `Cancel`. Длина цикла 1..31, это `PatternLimits`. `applyTemplate(CUSTOM)` открывает черновик, `Save` кладёт паттерн в Room и делает его активным, `Cancel` выбрасывает черновик без записи. `SetStartTime` / `SetLeadMinutes` меняют начало и упреждение типа в черновике.
 - Настройки. `snoozeOptions = [5, 10, 15, 20, 30]`, выбранное значение — `selectedSnooze`. Событие `SettingsEvent.SelectSnooze`. Минуты вне списка отбрасываются.
 - Динамический цвет. `UserSettings.useDynamicColor` в DataStore, ключ `use_dynamic_color`, по умолчанию `true`. `ShiftAlarmTheme(useDynamicColor)` подключает `dynamicLightColorScheme` / `dynamicDarkColorScheme` только на API 31+. Ниже остаётся своя палитра. Событие `SettingsEvent.SetUseDynamicColor`.
 - Будильник. `RingingUiState` — sealed: `Loading`, `Ringing(...)`, `Error(errorMessage: UiText)`. Пока нет имени смены, состояние `Error`.
@@ -325,7 +327,7 @@ Glance App Widget, подпись в списке виджетов: «завтр
 Для UI и feature:
 
 - У `ShiftType` и `ShiftTypeOption` поля `startTime: LocalTime?` и `alarmLeadMinutes: Int` (0..1440, по умолчанию 90). `alarmTime` убран. `OFF` и `AFTER_NIGHT` — `startTime = null`.
-- Редактор графика: `PatternEditorEvent.SetStartTime(shiftTypeId, startTime)` и `SetLeadMinutes(shiftTypeId, minutes)`. Черновик хранит правки отдельно и при `Save` копирует тип, если время или упреждение изменились. Недопустимое упреждение даёт `errorMessage`.
+- Редактор графика: `PatternEditorEvent.SetStartTime(shiftTypeId, startTime)`, `SetLeadMinutes(shiftTypeId, minutes)` и `Cancel`. Черновик хранит правки отдельно и при `Save` копирует тип, если время или упреждение изменились. `Cancel` закрывает черновик и ничего не пишет. Недопустимое упреждение даёт `errorMessage`.
 - `CalendarEvent.SetAlarmException.customTime` и `SelectedDayDetail.customAlarmTime` — абсолютный `LocalDateTime?`, не `LocalTime`.
 - `ResolvedShift.alarmAt` и `PlannedAlarm.triggerAt` — `ZonedDateTime?`. Момент: `ZonedDateTime.of(дата смены, startTime, системная зона) minus alarmLeadMinutes`.
 - Один расчёт: `AlarmScheduler.scheduleNext(nowEpochMillis)` → `NextAlarmPlanner.earliest`. Горизонт около двух длин цикла. Берётся самый ранний момент строго после `now`.
@@ -340,6 +342,13 @@ Glance App Widget, подпись в списке виджетов: «завтр
 - Нет разрешения на full-screen intent (API 34+): звонок — heads-up с `PRIORITY_MAX`, без `setFullScreenIntent`. Канал по-прежнему `IMPORTANCE_HIGH`.
 - Нет точных будильников: вместо `setAlarmClock` вызывается `setAndAllowWhileIdle`, а если он отклонён — `setWindow`. Плюс уведомление «Точные будильники выключены».
 - `UiText`: `Res` + `Raw`, `resolve(context)`, composable `resolve()`, `asUiText()` для `String` и string-resource `Int`.
+
+## Дополнение T10d: цвета и отмена редактора
+
+- У `ShiftType`, `ShiftTypeOption` и ячеек календаря вместо одного `colorArgb` пара `colorLight` / `colorDark` (`Long`, ARGB). Точка на календаре берёт цвет текущей темы (`Color(value.toInt())`).
+- Встроенные: день `#A16207`/`#F4B000`, ночь `#1E3A8A`/`#3B82F6`, отсыпной `#0F766E`/`#0D9488`, сутки `#312E81`/`#6366F1`. Выходной `#6B7280` в обеих темах.
+- Room 3, миграция `2 → 3`: колонка `colorArgb` копируется в обе новые колонки, затем строки `builtin-day`, `builtin-night`, `builtin-after-night` и `builtin-duty` получают пару. Старый снимок direct boot с одним `colorArgb` читается как обе темы.
+- `PatternEditorEvent.Cancel` закрывает черновик своего графика без `saveAndActivate`.
 
 ## Изменения T10e
 

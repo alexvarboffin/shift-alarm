@@ -21,7 +21,8 @@ class NextAlarmPlannerTest {
             id = "night-0030",
             kind = ShiftKind.NIGHT,
             name = "Ночь",
-            colorArgb = 0,
+            colorLight = 0L,
+            colorDark = 0L,
             startTime = LocalTime.of(0, 30),
             alarmLeadMinutes = 90,
         )
@@ -36,7 +37,8 @@ class NextAlarmPlannerTest {
             id = "gap",
             kind = ShiftKind.DAY,
             name = "День",
-            colorArgb = 0,
+            colorLight = 0L,
+            colorDark = 0L,
             startTime = LocalTime.of(2, 30),
             alarmLeadMinutes = 0,
         )
@@ -51,7 +53,8 @@ class NextAlarmPlannerTest {
             id = "overlap",
             kind = ShiftKind.NIGHT,
             name = "Ночь",
-            colorArgb = 0,
+            colorLight = 0L,
+            colorDark = 0L,
             startTime = LocalTime.of(2, 30),
             alarmLeadMinutes = 0,
         )
@@ -69,8 +72,8 @@ class NextAlarmPlannerTest {
             template = PatternTemplate.CUSTOM,
             startDate = today,
             cycle = listOf(
-                ShiftType("early", ShiftKind.DAY, "Рано", 0, LocalTime.of(22, 0), alarmLeadMinutes = 0),
-                ShiftType("midnight", ShiftKind.NIGHT, "Полночь", 0, LocalTime.of(0, 30), alarmLeadMinutes = 90),
+                ShiftType("early", ShiftKind.DAY, "Рано", 0L, 0L, LocalTime.of(22, 0), alarmLeadMinutes = 0),
+                ShiftType("midnight", ShiftKind.NIGHT, "Полночь", 0L, 0L, LocalTime.of(0, 30), alarmLeadMinutes = 90),
             ),
         )
         val now = ZonedDateTime.of(today, LocalTime.of(21, 0), utc)
@@ -88,8 +91,8 @@ class NextAlarmPlannerTest {
             template = PatternTemplate.CUSTOM,
             startDate = today,
             cycle = listOf(
-                ShiftType("early", ShiftKind.DAY, "Рано", 0, LocalTime.of(22, 0), alarmLeadMinutes = 0),
-                ShiftType("midnight", ShiftKind.NIGHT, "Полночь", 0, LocalTime.of(0, 30), alarmLeadMinutes = 90),
+                ShiftType("early", ShiftKind.DAY, "Рано", 0L, 0L, LocalTime.of(22, 0), alarmLeadMinutes = 0),
+                ShiftType("midnight", ShiftKind.NIGHT, "Полночь", 0L, 0L, LocalTime.of(0, 30), alarmLeadMinutes = 90),
             ),
         )
         val now = ZonedDateTime.of(today, LocalTime.of(22, 30), utc)

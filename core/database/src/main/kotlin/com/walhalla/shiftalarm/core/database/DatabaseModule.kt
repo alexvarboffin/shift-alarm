@@ -19,7 +19,10 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): ShiftDatabase =
         Room.databaseBuilder(context, ShiftDatabase::class.java, "shift-alarm.db")
-            .addMigrations(ShiftDatabaseMigrations.MIGRATION_1_2)
+            .addMigrations(
+                ShiftDatabaseMigrations.MIGRATION_1_2,
+                ShiftDatabaseMigrations.MIGRATION_2_3,
+            )
             .build()
 
     @Provides

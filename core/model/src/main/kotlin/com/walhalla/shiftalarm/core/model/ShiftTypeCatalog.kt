@@ -29,7 +29,8 @@ fun ShiftType.toOption(): ShiftTypeOption = ShiftTypeOption(
     id = ShiftTypeId(id),
     name = name,
     kind = kind,
-    colorArgb = colorArgb,
+    colorLight = colorLight,
+    colorDark = colorDark,
     startTime = startTime,
     alarmLeadMinutes = alarmLeadMinutes,
 )

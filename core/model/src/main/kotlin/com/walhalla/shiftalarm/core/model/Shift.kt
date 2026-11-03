@@ -22,7 +22,10 @@ data class ShiftType(
     val id: String,
     val kind: ShiftKind,
     val name: String,
-    val colorArgb: Int,
+    /** Opaque `0xAARRGGBB` for the light theme. */
+    val colorLight: Long,
+    /** Opaque `0xAARRGGBB` for the dark theme. */
+    val colorDark: Long,
     val startTime: LocalTime?,
     val alarmLeadMinutes: Int = DEFAULT_LEAD_MINUTES,
 ) {
@@ -48,7 +51,8 @@ data class ShiftTypeOption(
     val id: ShiftTypeId,
     val name: String,
     val kind: ShiftKind,
-    val colorArgb: Int,
+    val colorLight: Long,
+    val colorDark: Long,
     val startTime: LocalTime?,
     val alarmLeadMinutes: Int,
 )

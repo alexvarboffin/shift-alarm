@@ -11,7 +11,7 @@ import androidx.room.RoomDatabase
         DayOverrideEntity::class,
         AlarmExceptionEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class ShiftDatabase : RoomDatabase() {

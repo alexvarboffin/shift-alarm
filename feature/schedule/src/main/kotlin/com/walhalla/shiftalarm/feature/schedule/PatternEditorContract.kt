@@ -42,4 +42,7 @@ sealed interface PatternEditorEvent {
     ) : PatternEditorEvent
 
     data object Save : PatternEditorEvent
+
+    /** Drops the draft. Nothing is written. */
+    data object Cancel : PatternEditorEvent
 }

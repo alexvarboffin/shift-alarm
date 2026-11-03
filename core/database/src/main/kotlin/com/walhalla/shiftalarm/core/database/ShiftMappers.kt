@@ -14,7 +14,8 @@ internal fun ShiftType.toEntity(): ShiftTypeEntity = ShiftTypeEntity(
     id = id,
     kind = kind.name,
     name = name,
-    colorArgb = colorArgb,
+    colorLight = colorLight,
+    colorDark = colorDark,
     startHour = startTime?.hour,
     startMinute = startTime?.minute,
     alarmLeadMinutes = alarmLeadMinutes,
@@ -24,7 +25,8 @@ internal fun ShiftTypeEntity.toDomain(): ShiftType = ShiftType(
     id = id,
     kind = ShiftKind.valueOf(kind),
     name = name,
-    colorArgb = colorArgb,
+    colorLight = colorLight,
+    colorDark = colorDark,
     startTime = if (startHour != null && startMinute != null) {
         LocalTime.of(startHour, startMinute)
     } else {
