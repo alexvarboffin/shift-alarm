@@ -1,5 +1,6 @@
 package com.walhalla.shiftalarm.feature.calendar
 
+import androidx.lifecycle.SavedStateHandle
 import com.walhalla.shiftalarm.core.model.AlarmException
 import com.walhalla.shiftalarm.core.model.AlarmRepository
 import com.walhalla.shiftalarm.core.model.BuiltinShifts
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -35,11 +37,63 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class CalendarSetOverrideTest {
     @Test
+    fun noActivePatternIsAnEmptyMonth() {
+        val viewModel = CalendarViewModel(
+            RecordingShiftRepository(emptyList()),
+            EmptyAlarmRepository(),
+            RecordingRefresher(),
+            SavedStateHandle(),
+            Clock.systemDefaultZone(),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val job = scope.launch { viewModel.uiState.collect {} }
+        shadowOf(Looper.getMainLooper()).idle()
+        try {
+            assertFalse(viewModel.uiState.value.hasActivePattern)
+            assertTrue(viewModel.uiState.value.days.isEmpty())
+        } finally {
+            job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun savedMonthAndDayAreRestored() {
+        val handle = SavedStateHandle(
+            mapOf(KEY_MONTH to "2026-03", KEY_DAY to "2026-03-02"),
+        )
+        val pattern = ShiftTemplates.twoTwo(LocalDate.of(2026, 3, 1))
+        val viewModel = CalendarViewModel(
+            RecordingShiftRepository(emptyList(), pattern),
+            EmptyAlarmRepository(),
+            RecordingRefresher(),
+            handle,
+            Clock.systemDefaultZone(),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val job = scope.launch { viewModel.uiState.collect {} }
+        shadowOf(Looper.getMainLooper()).idle()
+        try {
+            assertEquals(java.time.YearMonth.of(2026, 3), viewModel.uiState.value.month)
+            assertEquals(LocalDate.of(2026, 3, 2), viewModel.uiState.value.selected?.date)
+        } finally {
+            job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun setOverrideNullClearsTheDay() {
         val date = LocalDate.of(2026, 3, 4)
         val shifts = RecordingShiftRepository(listOf(DayOverride(date, BuiltinShifts.day)))
         val widget = RecordingRefresher()
-        val viewModel = CalendarViewModel(shifts, EmptyAlarmRepository(), widget, Clock.systemDefaultZone())
+        val viewModel = CalendarViewModel(
+            shifts,
+            EmptyAlarmRepository(),
+            widget,
+            SavedStateHandle(),
+            Clock.systemDefaultZone(),
+        )
 
         viewModel.setOverride(date, null as ShiftTypeId?)
         shadowOf(Looper.getMainLooper()).idle()
@@ -60,6 +114,7 @@ class CalendarSetOverrideTest {
             RecordingShiftRepository(emptyList(), pattern),
             EmptyAlarmRepository(),
             RecordingRefresher(),
+            SavedStateHandle(),
             clock,
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)

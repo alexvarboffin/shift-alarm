@@ -38,7 +38,7 @@ class AlarmFireReceiver : BroadcastReceiver() {
         val pending = goAsync()
         scope.launch {
             try {
-                scheduler.scheduleNext(nowEpochMillis = maxOf(firedAt, now))
+                scheduler.scheduleNext(nowEpochMillis = notBeforeAfterFire(firedAt, now))
             } catch (error: Exception) {
                 Log.e(TAG, "Reschedule after fire failed", error)
             } finally {
@@ -51,3 +51,6 @@ class AlarmFireReceiver : BroadcastReceiver() {
         const val TAG: String = "ShiftAlarm"
     }
 }
+
+/** The next alarm must not be placed at a trigger that is already in the past. */
+internal fun notBeforeAfterFire(firedAt: Long, now: Long): Long = maxOf(firedAt, now)

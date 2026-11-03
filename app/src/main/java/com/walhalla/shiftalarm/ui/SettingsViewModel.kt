@@ -7,70 +7,93 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.walhalla.shiftalarm.R
 import com.walhalla.shiftalarm.core.alarm.AlarmScheduler
 import com.walhalla.shiftalarm.core.model.SettingsRepository
+import com.walhalla.shiftalarm.core.model.UserSettings
+import com.walhalla.shiftalarm.core.model.keepAlive
 import com.walhalla.shiftalarm.core.ui.UiText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Clock
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-class SettingsViewModel @Inject constructor(
+class SettingsViewModel internal constructor(
     private val settingsRepository: SettingsRepository,
     private val alarmScheduler: AlarmScheduler,
     @ApplicationContext private val context: Context,
     private val clock: Clock,
+    scopeOverride: CoroutineScope?,
 ) : ViewModel() {
+    private val workScope = scopeOverride ?: viewModelScope
     private val permissions = MutableStateFlow(readPermissions())
+    private val readError = MutableStateFlow<UiText?>(null)
+
+    @Inject
+    constructor(
+        settingsRepository: SettingsRepository,
+        alarmScheduler: AlarmScheduler,
+        @ApplicationContext context: Context,
+        clock: Clock,
+    ) : this(settingsRepository, alarmScheduler, context, clock, null)
 
     val uiState: StateFlow<SettingsUiState> = combine(
-        settingsRepository.settings,
+        settingsRepository.settings.keepAlive(UserSettings()) {
+            readError.value = UiText.Res(R.string.settings_error_read)
+        },
         permissions,
-    ) { settings, permission ->
-        SettingsUiState(
-            isLoading = false,
-            selectedSnooze = settings.snoozeMinutes,
-            vibrationEnabled = settings.vibrationEnabled,
-            useDynamicColor = settings.useDynamicColor,
-            notificationPermission = permission.notifications,
-            exactAlarm = permission.exact,
-            fullScreenIntent = permission.fullScreen,
-        )
-    }.catch { error ->
-        emit(
+        readError,
+    ) { settings, permission, error ->
+        if (error != null) {
             SettingsUiState(
                 isLoading = false,
-                errorMessage = UiText.Raw(error.message ?: "Настройки недоступны"),
-            ),
-        )
+                selectedSnooze = settings.snoozeMinutes,
+                vibrationEnabled = settings.vibrationEnabled,
+                useDynamicColor = settings.useDynamicColor,
+                notificationPermission = NotificationPermission.Denied,
+                exactAlarm = false,
+                fullScreenIntent = false,
+                errorMessage = error,
+            )
+        } else {
+            SettingsUiState(
+                isLoading = false,
+                selectedSnooze = settings.snoozeMinutes,
+                vibrationEnabled = settings.vibrationEnabled,
+                useDynamicColor = settings.useDynamicColor,
+                notificationPermission = permission.notifications,
+                exactAlarm = permission.exact,
+                fullScreenIntent = permission.fullScreen,
+            )
+        }
     }.stateIn(
-        scope = viewModelScope,
+        scope = workScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = SettingsUiState(),
     )
 
     fun refreshPermissions() {
         permissions.update { readPermissions() }
-        viewModelScope.launch { alarmScheduler.scheduleNext(clock.millis()) }
+        workScope.launch { alarmScheduler.scheduleNext(clock.millis()) }
     }
 
     fun onEvent(event: SettingsEvent) {
         when (event) {
             is SettingsEvent.SelectSnooze -> {
                 if (event.minutes !in SettingsUiState.SNOOZE_OPTIONS) return
-                viewModelScope.launch { settingsRepository.setSnoozeMinutes(event.minutes) }
+                workScope.launch { settingsRepository.setSnoozeMinutes(event.minutes) }
             }
             is SettingsEvent.SetUseDynamicColor -> {
-                viewModelScope.launch { settingsRepository.setUseDynamicColor(event.enabled) }
+                workScope.launch { settingsRepository.setUseDynamicColor(event.enabled) }
             }
         }
     }
@@ -80,7 +103,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setVibrationEnabled(enabled: Boolean) {
-        viewModelScope.launch { settingsRepository.setVibrationEnabled(enabled) }
+        workScope.launch { settingsRepository.setVibrationEnabled(enabled) }
     }
 
     private fun readPermissions(): PermissionSnapshot = PermissionSnapshot(

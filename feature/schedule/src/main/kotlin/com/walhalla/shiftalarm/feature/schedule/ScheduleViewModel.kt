@@ -10,6 +10,7 @@ import com.walhalla.shiftalarm.core.model.ShiftTemplates
 import com.walhalla.shiftalarm.core.model.ShiftType
 import com.walhalla.shiftalarm.core.model.ShiftTypeCatalog
 import com.walhalla.shiftalarm.core.model.ShiftTypeId
+import com.walhalla.shiftalarm.core.model.keepAlive
 import com.walhalla.shiftalarm.core.ui.UiText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Clock
@@ -17,10 +18,10 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
@@ -28,19 +29,30 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-class ScheduleViewModel @Inject constructor(
+class ScheduleViewModel internal constructor(
     private val repository: ShiftRepository,
     private val widgetRefresher: HomeWidgetRefresher,
     private val clock: Clock,
+    scopeOverride: CoroutineScope?,
 ) : ViewModel() {
+    private val workScope = scopeOverride ?: viewModelScope
     private val editor = MutableStateFlow<EditorDraft?>(null)
+    private val readError = MutableStateFlow<UiText?>(null)
+
+    @Inject
+    constructor(
+        repository: ShiftRepository,
+        widgetRefresher: HomeWidgetRefresher,
+        clock: Clock,
+    ) : this(repository, widgetRefresher, clock, null)
 
     val uiState: StateFlow<ScheduleUiState> = combine(
-        repository.observePatterns(),
-        repository.observeActivePattern(),
-        repository.observeShiftTypes(),
+        repository.observePatterns().keepAlive(emptyList()) { readError.value = readFailure() },
+        repository.observeActivePattern().keepAlive(null) { readError.value = readFailure() },
+        repository.observeShiftTypes().keepAlive(emptyList()) { readError.value = readFailure() },
         editor,
-    ) { patterns, active, storedTypes, draft ->
+        readError,
+    ) { patterns, active, storedTypes, draft, error ->
         ScheduleUiState(
             isLoading = false,
             patterns = patterns.map { pattern ->
@@ -54,26 +66,22 @@ class ScheduleViewModel @Inject constructor(
             },
             activePatternId = active?.id,
             editor = draft?.toState(storedTypes),
-        )
-    }.catch { error ->
-        emit(
-            ScheduleUiState(
-                isLoading = false,
-                errorMessage = UiText.Raw(error.message ?: "Не удалось прочитать график"),
-            ),
+            errorMessage = error,
         )
     }.stateIn(
-        scope = viewModelScope,
+        scope = workScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = ScheduleUiState(),
     )
+
+    private fun readFailure(): UiText = UiText.Res(R.string.schedule_error_read)
 
     fun applyTemplate(template: PatternTemplate) {
         if (template == PatternTemplate.CUSTOM) {
             openCustomEditor()
             return
         }
-        viewModelScope.launch {
+        workScope.launch {
             val today = LocalDate.now(clock)
             val pattern = when (template) {
                 PatternTemplate.TWO_TWO -> ShiftTemplates.twoTwo(today)
@@ -139,13 +147,13 @@ class ScheduleViewModel @Inject constructor(
                     saveError = null,
                 )
             }
-            PatternEditorEvent.Save -> viewModelScope.launch { save(current) }
+            PatternEditorEvent.Save -> workScope.launch { save(current) }
             PatternEditorEvent.Cancel -> editor.value = null
         }
     }
 
     fun activate(patternId: String) {
-        viewModelScope.launch {
+        workScope.launch {
             repository.setActivePattern(patternId)
             widgetRefresher.refresh()
         }

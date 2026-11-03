@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="calendar_error_load">Не удалось собрать месяц</string>
+    <string name="calendar_error_unknown_type">Неизвестный тип смены</string>
+</resources>

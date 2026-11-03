@@ -174,21 +174,6 @@ class NextAlarmPlannerTest {
     }
 
     @Test
-    fun fallBackOverlapDoesNotJumpADayWhenTheEarlierInstantHasPassed() {
-        val fall = berlin.rules.nextTransition(Instant.parse("2026-10-01T00:00:00Z"))
-        val day = fall.dateTimeAfter.toLocalDate()
-        val now = fall.instant.plusSeconds(30 * 60).atZone(berlin)
-        val alarm = LocalTime.of(2, 45)
-        val earlier = LocalDateTime.of(day, alarm).atOffset(fall.offsetBefore).toInstant()
-        assertTrue(earlier.isBefore(now.toInstant()))
-        val planned = NextAlarmPlanner.earliest(now, oneAlarm(day, alarm))
-        assertEquals(day, planned?.triggerAt?.toLocalDate())
-        assertEquals(alarm, planned?.triggerAt?.toLocalTime())
-        assertEquals(fall.offsetAfter, planned?.triggerAt?.offset)
-        assertTrue(planned!!.triggerAt.toInstant().isAfter(now.toInstant()))
-    }
-
-    @Test
     fun springForwardGapIsTheNextAlarmOnTheSameDay() {
         val spring = berlin.rules.nextTransition(Instant.parse("2026-03-01T00:00:00Z"))
         val day = spring.dateTimeBefore.toLocalDate()

@@ -15,6 +15,7 @@ import android.os.PowerManager
 import android.os.UserManager
 import androidx.core.app.NotificationCompat
 import com.walhalla.shiftalarm.core.model.SettingsRepository
+import com.walhalla.shiftalarm.core.model.UserSettings
 import dagger.hilt.android.AndroidEntryPoint
 import java.time.Clock
 import javax.inject.Inject
@@ -42,13 +43,15 @@ class RingingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> scope.launch {
-                scheduler.dismiss()
-                stopRinging()
+                runThenStopRinging(::stopRinging) { scheduler.dismiss() }
             }
             ACTION_SNOOZE -> scope.launch {
-                val minutes = settingsRepository.settings.first().snoozeMinutes
-                scheduler.snooze(minutes, ringingShiftName)
-                stopRinging()
+                runThenStopRinging(::stopRinging) {
+                    val minutes = resolveSnoozeMinutes(isUserUnlocked()) {
+                        settingsRepository.settings.first().snoozeMinutes
+                    }
+                    scheduler.snooze(minutes, ringingShiftName.ifBlank { "Смена" })
+                }
             }
             else -> startRinging(intent)
         }
@@ -196,6 +199,26 @@ internal const val RINGING_CHANNEL_QUIET: String = "shift_alarm_ring_quiet"
 
 internal fun ringingChannelId(vibration: Boolean): String =
     if (vibration) RINGING_CHANNEL_VIBRATE else RINGING_CHANNEL_QUIET
+
+/**
+ * Before the first unlock the credential-encrypted settings store is unavailable.
+ * Snooze minutes then stay at the default and are not read from that store.
+ */
+internal suspend fun resolveSnoozeMinutes(
+    userUnlocked: Boolean,
+    readSettings: suspend () -> Int,
+): Int {
+    if (!userUnlocked) return UserSettings.DEFAULT_SNOOZE_MINUTES
+    return readSettings()
+}
+
+internal suspend fun runThenStopRinging(stop: () -> Unit, block: suspend () -> Unit) {
+    try {
+        block()
+    } finally {
+        stop()
+    }
+}
 
 /**
  * Full-screen intent when the app may use one. Otherwise a high-priority heads-up
