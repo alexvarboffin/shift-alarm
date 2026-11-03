@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_name">завтра: смена/выходной</string>
+    <string name="widget_description">Показывает смену или выходной на завтра</string>
+    <string name="widget_loading">завтра: …</string>
+</resources>

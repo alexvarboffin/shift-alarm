@@ -1,0 +1,48 @@
+package com.walhalla.shiftalarm.core.alarm
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.util.Log
+import androidx.core.content.ContextCompat
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+
+@AndroidEntryPoint
+class AlarmFireReceiver : BroadcastReceiver() {
+    @Inject lateinit var scheduler: AlarmScheduler
+
+    @Inject @ApplicationScope lateinit var scope: CoroutineScope
+
+    override fun onReceive(context: Context, intent: Intent) {
+        val ringing = Intent(context, RingingService::class.java).apply {
+            action = RingingService.ACTION_FIRE
+            putExtras(intent)
+        }
+        try {
+            ContextCompat.startForegroundService(context, ringing)
+        } catch (error: RuntimeException) {
+            Log.e(TAG, "Ringing service did not start", error)
+        }
+        val firedAt = intent.getLongExtra(
+            AlarmIntents.EXTRA_TRIGGER_AT_MILLIS,
+            System.currentTimeMillis(),
+        )
+        val pending = goAsync()
+        scope.launch {
+            try {
+                scheduler.scheduleNext(notBeforeEpochMillis = firedAt)
+            } catch (error: Exception) {
+                Log.e(TAG, "Reschedule after fire failed", error)
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+
+    private companion object {
+        const val TAG: String = "ShiftAlarm"
+    }
+}
