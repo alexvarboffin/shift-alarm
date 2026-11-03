@@ -1,13 +1,17 @@
 package com.walhalla.shiftalarm.widget
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
@@ -39,12 +43,14 @@ class TomorrowShiftWidget : GlanceAppWidget() {
         val pattern = repository.observeActivePattern().first()
         val overrides = repository.observeOverrides().first().associateBy { it.date }
         val label = tomorrowLabel(pattern, overrides)
+        val openApp = actionStartActivity(openAppIntent(context))
         provideContent {
             Column(
                 modifier = GlanceModifier
                     .fillMaxSize()
                     .background(ColorProvider(day = Color(0xFFF4F1EA), night = Color(0xFF12161C)))
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .clickable(openApp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -63,6 +69,15 @@ class TomorrowShiftWidget : GlanceAppWidget() {
 class TomorrowShiftWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = TomorrowShiftWidget()
 }
+
+/** Explicit component. Glance turns this into one immutable click PendingIntent. */
+internal fun openAppIntent(context: Context): Intent =
+    Intent(Intent.ACTION_MAIN).apply {
+        component = ComponentName(context.packageName, MAIN_ACTIVITY)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    }
+
+private const val MAIN_ACTIVITY: String = "com.walhalla.shiftalarm.MainActivity"
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)

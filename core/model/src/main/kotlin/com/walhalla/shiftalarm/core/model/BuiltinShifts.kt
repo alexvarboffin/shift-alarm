@@ -14,7 +14,7 @@ object BuiltinShifts {
         kind = ShiftKind.DAY,
         name = "День",
         colorArgb = 0xFFF4B000.toInt(),
-        alarmTime = LocalTime.of(7, 0),
+        startTime = LocalTime.of(7, 0),
     )
 
     val night: ShiftType = ShiftType(
@@ -22,7 +22,7 @@ object BuiltinShifts {
         kind = ShiftKind.NIGHT,
         name = "Ночь",
         colorArgb = 0xFF1E3A8A.toInt(),
-        alarmTime = LocalTime.of(19, 0),
+        startTime = LocalTime.of(19, 0),
     )
 
     val afterNight: ShiftType = ShiftType(
@@ -30,7 +30,7 @@ object BuiltinShifts {
         kind = ShiftKind.AFTER_NIGHT,
         name = "Отсыпной",
         colorArgb = 0xFF0F766E.toInt(),
-        alarmTime = null,
+        startTime = null,
     )
 
     val off: ShiftType = ShiftType(
@@ -38,7 +38,7 @@ object BuiltinShifts {
         kind = ShiftKind.OFF,
         name = "Выходной",
         colorArgb = 0xFF6B7280.toInt(),
-        alarmTime = null,
+        startTime = null,
     )
 
     /** 24-hour duty used by the сутки-трое template. */
@@ -47,6 +47,6 @@ object BuiltinShifts {
         kind = ShiftKind.NIGHT,
         name = "Сутки",
         colorArgb = 0xFF312E81.toInt(),
-        alarmTime = LocalTime.of(8, 0),
+        startTime = LocalTime.of(8, 0),
     )
 }

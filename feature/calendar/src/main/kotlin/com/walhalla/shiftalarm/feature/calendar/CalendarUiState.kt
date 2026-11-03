@@ -5,6 +5,7 @@ import com.walhalla.shiftalarm.core.ui.UiText
 import com.walhalla.shiftalarm.core.model.ShiftTypeId
 import com.walhalla.shiftalarm.core.model.ShiftTypeOption
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.YearMonth
 
@@ -29,7 +30,9 @@ data class SelectedDayDetail(
     val colorArgb: Int?,
     val hasOverride: Boolean,
     val alarmEnabled: Boolean,
-    val customAlarmTime: LocalTime?,
+    val startTime: LocalTime?,
+    val alarmLeadMinutes: Int?,
+    val customAlarmTime: LocalDateTime?,
     val alarmLabel: String?,
     val availableTypes: List<ShiftTypeOption>,
 )

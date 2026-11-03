@@ -13,6 +13,7 @@ import com.walhalla.shiftalarm.core.model.ShiftTypeId
 import com.walhalla.shiftalarm.core.ui.UiText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
+import java.time.LocalTime
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -115,6 +116,27 @@ class ScheduleViewModel @Inject constructor(
                 slots = moveSlot(current.slots, event.fromIndex, event.toIndex),
                 saveError = null,
             )
+            is PatternEditorEvent.SetStartTime -> {
+                val timing = current.timings[event.shiftTypeId] ?: TypeTiming()
+                editor.value = current.copy(
+                    timings = current.timings + (event.shiftTypeId to timing.copy(
+                        startTime = event.startTime,
+                        startTimeSet = true,
+                    )),
+                    saveError = null,
+                )
+            }
+            is PatternEditorEvent.SetLeadMinutes -> {
+                if (event.minutes !in ShiftType.MIN_LEAD_MINUTES..ShiftType.MAX_LEAD_MINUTES) {
+                    editor.value = current.copy(saveError = "Упреждение от 0 до 1440 минут.")
+                    return
+                }
+                val timing = current.timings[event.shiftTypeId] ?: TypeTiming()
+                editor.value = current.copy(
+                    timings = current.timings + (event.shiftTypeId to timing.copy(alarmLeadMinutes = event.minutes)),
+                    saveError = null,
+                )
+            }
             PatternEditorEvent.Save -> viewModelScope.launch { save(current) }
         }
     }
@@ -129,11 +151,12 @@ class ScheduleViewModel @Inject constructor(
     private suspend fun save(draft: EditorDraft) {
         if (PatternLimits.slotCountMessage(draft.slots.size) != null) return
         val stored = repository.observeShiftTypes().first()
-        val cycle = draft.slots.map { id ->
-            ShiftTypeCatalog.find(stored, id) ?: run {
+        val cycle = draft.slots.mapIndexed { index, id ->
+            val base = ShiftTypeCatalog.find(stored, id) ?: run {
                 editor.update { it?.copy(saveError = "Неизвестный тип смены.") }
                 return
             }
+            draft.timings[id]?.applyTo(base, index) ?: base
         }
         val pattern = ShiftTemplates.custom(
             id = "custom-${UUID.randomUUID()}",
@@ -151,7 +174,13 @@ class ScheduleViewModel @Inject constructor(
             name = name,
             startDate = startDate,
             slots = slots,
-            availableTypes = ShiftTypeCatalog.options(stored),
+            availableTypes = ShiftTypeCatalog.options(stored).map { option ->
+                val timing = timings[option.id] ?: return@map option
+                option.copy(
+                    startTime = if (timing.startTimeSet) timing.startTime else option.startTime,
+                    alarmLeadMinutes = timing.alarmLeadMinutes ?: option.alarmLeadMinutes,
+                )
+            },
             errorMessage = (PatternLimits.slotCountMessage(slots.size) ?: saveError)?.let(UiText::Raw),
         )
 
@@ -159,8 +188,26 @@ class ScheduleViewModel @Inject constructor(
         val name: String,
         val startDate: LocalDate,
         val slots: List<ShiftTypeId>,
+        val timings: Map<ShiftTypeId, TypeTiming> = emptyMap(),
         val saveError: String? = null,
     )
+
+    private data class TypeTiming(
+        val startTime: LocalTime? = null,
+        val startTimeSet: Boolean = false,
+        val alarmLeadMinutes: Int? = null,
+    ) {
+        fun applyTo(base: ShiftType, index: Int): ShiftType {
+            val start = if (startTimeSet) startTime else base.startTime
+            val lead = alarmLeadMinutes ?: base.alarmLeadMinutes
+            if (start == base.startTime && lead == base.alarmLeadMinutes) return base
+            return base.copy(
+                id = "${base.id}@$index",
+                startTime = start,
+                alarmLeadMinutes = lead,
+            )
+        }
+    }
 }
 
 private fun moveSlot(slots: List<ShiftTypeId>, fromIndex: Int, toIndex: Int): List<ShiftTypeId> {

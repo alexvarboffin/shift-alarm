@@ -13,6 +13,7 @@ import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftType
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -110,18 +111,20 @@ private fun encodeShift(shift: ShiftType): JSONObject = JSONObject()
     .put("kind", shift.kind.name)
     .put("name", shift.name)
     .put("colorArgb", shift.colorArgb)
-    .put("hour", shift.alarmTime?.hour ?: JSONObject.NULL)
-    .put("minute", shift.alarmTime?.minute ?: JSONObject.NULL)
+    .put("startHour", shift.startTime?.hour ?: JSONObject.NULL)
+    .put("startMinute", shift.startTime?.minute ?: JSONObject.NULL)
+    .put("alarmLeadMinutes", shift.alarmLeadMinutes)
 
 private fun decodeShift(json: JSONObject): ShiftType {
-    val hour = json.optIntOrNull("hour")
-    val minute = json.optIntOrNull("minute")
+    val hour = json.optIntOrNull("startHour")
+    val minute = json.optIntOrNull("startMinute")
     return ShiftType(
         id = json.getString("id"),
         kind = ShiftKind.valueOf(json.getString("kind")),
         name = json.getString("name"),
         colorArgb = json.getInt("colorArgb"),
-        alarmTime = if (hour != null && minute != null) LocalTime.of(hour, minute) else null,
+        startTime = if (hour != null && minute != null) LocalTime.of(hour, minute) else null,
+        alarmLeadMinutes = json.optInt("alarmLeadMinutes", ShiftType.DEFAULT_LEAD_MINUTES),
     )
 }
 
@@ -137,16 +140,22 @@ private fun decodeOverride(json: JSONObject): DayOverride = DayOverride(
 private fun encodeException(exception: AlarmException): JSONObject = JSONObject()
     .put("epochDay", exception.date.toEpochDay())
     .put("enabled", exception.enabled)
-    .put("hour", exception.time?.hour ?: JSONObject.NULL)
-    .put("minute", exception.time?.minute ?: JSONObject.NULL)
+    .put("customEpochDay", exception.customTime?.toLocalDate()?.toEpochDay() ?: JSONObject.NULL)
+    .put("customHour", exception.customTime?.hour ?: JSONObject.NULL)
+    .put("customMinute", exception.customTime?.minute ?: JSONObject.NULL)
 
 private fun decodeException(json: JSONObject): AlarmException {
-    val hour = json.optIntOrNull("hour")
-    val minute = json.optIntOrNull("minute")
+    val day = json.optLongOrNull("customEpochDay")
+    val hour = json.optIntOrNull("customHour")
+    val minute = json.optIntOrNull("customMinute")
     return AlarmException(
         date = LocalDate.ofEpochDay(json.getLong("epochDay")),
         enabled = json.getBoolean("enabled"),
-        time = if (hour != null && minute != null) LocalTime.of(hour, minute) else null,
+        customTime = if (day != null && hour != null && minute != null) {
+            LocalDateTime.of(LocalDate.ofEpochDay(day), LocalTime.of(hour, minute))
+        } else {
+            null
+        },
     )
 }
 

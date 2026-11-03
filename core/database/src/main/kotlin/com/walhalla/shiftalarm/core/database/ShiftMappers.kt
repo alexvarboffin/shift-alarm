@@ -7,6 +7,7 @@ import com.walhalla.shiftalarm.core.model.ShiftKind
 import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftType
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 
 internal fun ShiftType.toEntity(): ShiftTypeEntity = ShiftTypeEntity(
@@ -14,8 +15,9 @@ internal fun ShiftType.toEntity(): ShiftTypeEntity = ShiftTypeEntity(
     kind = kind.name,
     name = name,
     colorArgb = colorArgb,
-    alarmHour = alarmTime?.hour,
-    alarmMinute = alarmTime?.minute,
+    startHour = startTime?.hour,
+    startMinute = startTime?.minute,
+    alarmLeadMinutes = alarmLeadMinutes,
 )
 
 internal fun ShiftTypeEntity.toDomain(): ShiftType = ShiftType(
@@ -23,11 +25,12 @@ internal fun ShiftTypeEntity.toDomain(): ShiftType = ShiftType(
     kind = ShiftKind.valueOf(kind),
     name = name,
     colorArgb = colorArgb,
-    alarmTime = if (alarmHour != null && alarmMinute != null) {
-        LocalTime.of(alarmHour, alarmMinute)
+    startTime = if (startHour != null && startMinute != null) {
+        LocalTime.of(startHour, startMinute)
     } else {
         null
     },
+    alarmLeadMinutes = alarmLeadMinutes,
 )
 
 internal fun ShiftPattern.toEntity(isActive: Boolean): PatternEntity = PatternEntity(
@@ -59,12 +62,17 @@ internal fun DayOverride.toEntity(): DayOverrideEntity = DayOverrideEntity(
 internal fun AlarmException.toEntity(): AlarmExceptionEntity = AlarmExceptionEntity(
     epochDay = date.toEpochDay(),
     enabled = enabled,
-    hour = time?.hour,
-    minute = time?.minute,
+    customEpochDay = customTime?.toLocalDate()?.toEpochDay(),
+    customHour = customTime?.hour,
+    customMinute = customTime?.minute,
 )
 
 internal fun AlarmExceptionEntity.toDomain(): AlarmException = AlarmException(
     date = LocalDate.ofEpochDay(epochDay),
     enabled = enabled,
-    time = if (hour != null && minute != null) LocalTime.of(hour, minute) else null,
+    customTime = if (customEpochDay != null && customHour != null && customMinute != null) {
+        LocalDateTime.of(LocalDate.ofEpochDay(customEpochDay), LocalTime.of(customHour, customMinute))
+    } else {
+        null
+    },
 )

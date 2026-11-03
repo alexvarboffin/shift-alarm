@@ -7,6 +7,7 @@ import com.walhalla.shiftalarm.core.model.AlarmRepository
 import com.walhalla.shiftalarm.core.model.BuiltinShifts
 import com.walhalla.shiftalarm.core.model.HomeWidgetRefresher
 import com.walhalla.shiftalarm.core.model.DayOverride
+import com.walhalla.shiftalarm.core.model.ShiftAlarms
 import com.walhalla.shiftalarm.core.model.ShiftCalculator
 import com.walhalla.shiftalarm.core.model.ShiftKind
 import com.walhalla.shiftalarm.core.model.ShiftPattern
@@ -19,8 +20,9 @@ import com.walhalla.shiftalarm.core.model.ShiftTypeOption
 import com.walhalla.shiftalarm.core.ui.UiText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.YearMonth
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -151,7 +153,7 @@ class CalendarViewModel @Inject constructor(
                 StoredAlarmException(
                     date = event.date,
                     enabled = event.enabled,
-                    time = if (event.enabled) event.customTime else null,
+                    customTime = if (event.enabled) event.customTime else null,
                 ),
             )
             is CalendarEvent.ClearAlarmException -> clearAlarmException(event.date)
@@ -173,7 +175,7 @@ class CalendarViewModel @Inject constructor(
         } else {
             ShiftCalculator.shiftFor(date, pattern, overrideMap)
         }
-        val alarm = effectiveAlarm(resolved?.shift, exception)
+        val alarm = alarmInstant(date, resolved?.shift, exception)
         return SelectedDayDetail(
             date = date,
             shiftTypeId = resolved?.shift?.id?.let(::ShiftTypeId),
@@ -182,8 +184,10 @@ class CalendarViewModel @Inject constructor(
             colorArgb = resolved?.shift?.colorArgb,
             hasOverride = resolved?.source == ShiftSource.OVERRIDE,
             alarmEnabled = alarm != null,
-            customAlarmTime = exception?.takeIf { it.enabled }?.time,
-            alarmLabel = alarm?.let { "%02d:%02d".format(it.hour, it.minute) },
+            startTime = resolved?.shift?.startTime,
+            alarmLeadMinutes = resolved?.shift?.alarmLeadMinutes,
+            customAlarmTime = exception?.takeIf { it.enabled }?.customTime,
+            alarmLabel = alarm?.toLocalTime()?.let { "%02d:%02d".format(it.hour, it.minute) },
             availableTypes = options,
         )
     }
@@ -202,23 +206,32 @@ class CalendarViewModel @Inject constructor(
                 CalendarDayUi(date, null, null, null, false, null)
             } else {
                 val resolved = ShiftCalculator.shiftFor(date, pattern, overrideMap)
-                val alarm = effectiveAlarm(resolved.shift, exceptionMap[date])
+                val alarm = alarmInstant(date, resolved.shift, exceptionMap[date])
                 CalendarDayUi(
                     date = date,
                     shiftName = resolved.shift.name,
                     shiftKind = resolved.shift.kind,
                     colorArgb = resolved.shift.colorArgb,
                     hasOverride = resolved.source == ShiftSource.OVERRIDE,
-                    alarmLabel = alarm?.let { "%02d:%02d".format(it.hour, it.minute) },
+                    alarmLabel = alarm?.toLocalTime()?.let { "%02d:%02d".format(it.hour, it.minute) },
                 )
             }
         }
     }
 
-    private fun effectiveAlarm(shift: ShiftType?, exception: StoredAlarmException?): LocalTime? = when {
-        exception?.enabled == false -> null
-        exception?.time != null -> exception.time
-        else -> shift?.alarmTime
+    private fun alarmInstant(
+        date: LocalDate,
+        shift: ShiftType?,
+        exception: StoredAlarmException?,
+    ): ZonedDateTime? {
+        val zone = ZoneId.systemDefault()
+        val custom = exception?.customTime
+        return when {
+            exception?.enabled == false -> null
+            custom != null -> ShiftAlarms.exceptionInstant(custom, zone)
+            shift == null -> null
+            else -> ShiftAlarms.instant(date, shift, zone)
+        }
     }
 }
 

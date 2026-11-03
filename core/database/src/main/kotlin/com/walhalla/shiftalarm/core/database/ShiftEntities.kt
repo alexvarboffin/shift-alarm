@@ -13,8 +13,9 @@ data class ShiftTypeEntity(
     val kind: String,
     val name: String,
     val colorArgb: Int,
-    val alarmHour: Int?,
-    val alarmMinute: Int?,
+    val startHour: Int?,
+    val startMinute: Int?,
+    val alarmLeadMinutes: Int,
 )
 
 @Entity(tableName = "patterns")
@@ -75,8 +76,9 @@ data class DayOverrideEntity(
 data class AlarmExceptionEntity(
     @PrimaryKey val epochDay: Long,
     val enabled: Boolean,
-    val hour: Int?,
-    val minute: Int?,
+    val customEpochDay: Long?,
+    val customHour: Int?,
+    val customMinute: Int?,
 )
 
 data class PatternWithSlots(

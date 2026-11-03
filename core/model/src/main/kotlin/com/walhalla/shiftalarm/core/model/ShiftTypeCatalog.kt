@@ -30,5 +30,6 @@ fun ShiftType.toOption(): ShiftTypeOption = ShiftTypeOption(
     name = name,
     kind = kind,
     colorArgb = colorArgb,
-    alarmTime = alarmTime,
+    startTime = startTime,
+    alarmLeadMinutes = alarmLeadMinutes,
 )

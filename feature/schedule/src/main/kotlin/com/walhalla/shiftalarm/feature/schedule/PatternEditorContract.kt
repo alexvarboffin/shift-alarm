@@ -5,6 +5,7 @@ import com.walhalla.shiftalarm.core.ui.UiText
 import com.walhalla.shiftalarm.core.model.ShiftTypeId
 import com.walhalla.shiftalarm.core.model.ShiftTypeOption
 import java.time.LocalDate
+import java.time.LocalTime
 
 /**
  * Minimal custom-cycle editor. No screen yet: [ScheduleViewModel] keeps this state
@@ -29,6 +30,16 @@ sealed interface PatternEditorEvent {
     data class SetName(val name: String) : PatternEditorEvent
 
     data class SetStartDate(val date: LocalDate) : PatternEditorEvent
+
+    data class SetStartTime(
+        val shiftTypeId: ShiftTypeId,
+        val startTime: LocalTime?,
+    ) : PatternEditorEvent
+
+    data class SetLeadMinutes(
+        val shiftTypeId: ShiftTypeId,
+        val minutes: Int,
+    ) : PatternEditorEvent
 
     data object Save : PatternEditorEvent
 }

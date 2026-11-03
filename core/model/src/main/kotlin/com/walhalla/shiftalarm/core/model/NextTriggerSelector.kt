@@ -1,7 +1,5 @@
 package com.walhalla.shiftalarm.core.model
 
-import java.time.ZoneId
-
 data class ScheduledTrigger(
     val epochMillis: Long,
     val shiftName: String,
@@ -10,17 +8,16 @@ data class ScheduledTrigger(
 
 /**
  * Picks the single alarm the process is allowed to have armed.
- * A snooze strictly after [notBeforeEpochMillis] wins over the next shift alarm.
+ * A snooze strictly after [nowEpochMillis] wins over the next shift alarm.
  */
 object NextTriggerSelector {
     fun select(
-        notBeforeEpochMillis: Long,
+        nowEpochMillis: Long,
         snoozeEpochMillis: Long?,
         snoozeShiftName: String,
         planned: PlannedAlarm?,
-        zone: ZoneId,
     ): ScheduledTrigger? {
-        if (snoozeEpochMillis != null && snoozeEpochMillis > notBeforeEpochMillis) {
+        if (snoozeEpochMillis != null && snoozeEpochMillis > nowEpochMillis) {
             return ScheduledTrigger(
                 epochMillis = snoozeEpochMillis,
                 shiftName = snoozeShiftName,
@@ -28,8 +25,8 @@ object NextTriggerSelector {
             )
         }
         val alarm = planned ?: return null
-        val epoch = alarm.triggerAt.atZone(zone).toInstant().toEpochMilli()
-        if (epoch <= notBeforeEpochMillis) return null
+        val epoch = alarm.triggerAt.toInstant().toEpochMilli()
+        if (epoch <= nowEpochMillis) return null
         return ScheduledTrigger(
             epochMillis = epoch,
             shiftName = alarm.shift.name,

@@ -3,6 +3,7 @@ package com.walhalla.shiftalarm.core.alarm
 import android.app.AlarmManager
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -35,45 +36,34 @@ class AlarmManagerAlarmScheduler @Inject constructor(
     private val alarmManager: AlarmManager
         get() = context.getSystemService(AlarmManager::class.java)
 
-    override suspend fun scheduleNext(notBeforeEpochMillis: Long) {
+    override suspend fun scheduleNext(nowEpochMillis: Long) {
         if (!context.isUserUnlocked()) {
-            scheduleFromDirectBoot(notBeforeEpochMillis)
+            scheduleFromDirectBoot(nowEpochMillis)
             return
         }
         migrateDirectBootSnapshot()
         val zone = ZoneId.systemDefault()
-        val notBefore = Instant.ofEpochMilli(notBeforeEpochMillis).atZone(zone).toLocalDateTime()
+        val now = Instant.ofEpochMilli(nowEpochMillis).atZone(zone)
         val pattern = shiftRepository.observeActivePattern().first()
         val overrides = shiftRepository.observeOverrides().first()
         val exceptions = alarmRepository.observeExceptions().first()
-        val overrideMap = overrides.associateBy { it.date }
-        val exceptionMap = exceptions.associateBy { it.date }
         val settings = settingsRepository.settings.first()
 
         var snoozeEpoch = settings.pendingSnoozeAtEpochMillis
         var snoozeName = settings.pendingSnoozeShiftName
-        if (snoozeEpoch != null && snoozeEpoch <= notBeforeEpochMillis) {
+        if (snoozeEpoch != null && snoozeEpoch <= nowEpochMillis) {
             settingsRepository.setPendingSnooze(null, "")
             snoozeEpoch = null
             snoozeName = ""
         }
 
-        val planned = if (pattern == null) {
-            null
-        } else {
-            NextAlarmPlanner.nextShiftAlarm(
-                now = notBefore,
-                pattern = pattern,
-                overrides = overrideMap,
-                alarmExceptions = exceptionMap,
-            )
-        }
-        val selected = NextTriggerSelector.select(
-            notBeforeEpochMillis = notBeforeEpochMillis,
+        val selected = chooseTrigger(
+            now = now,
+            pattern = pattern,
+            overrides = overrides,
+            exceptions = exceptions,
             snoozeEpochMillis = snoozeEpoch,
             snoozeShiftName = snoozeName,
-            planned = planned,
-            zone = zone,
         )
         val snapshot = DirectBootSnapshot(
             triggerEpochMillis = selected?.epochMillis,
@@ -177,8 +167,10 @@ class AlarmManagerAlarmScheduler @Inject constructor(
     }
 
     private fun showPending(): PendingIntent {
-        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
-            ?: Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(context.packageName)
+        val launch = Intent(Intent.ACTION_MAIN).apply {
+            component = ComponentName(context.packageName, MAIN_ACTIVITY)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
         return PendingIntent.getActivity(
             context,
             AlarmIntents.REQUEST_SHOW,
@@ -187,39 +179,55 @@ class AlarmManagerAlarmScheduler @Inject constructor(
         )
     }
 
-    private suspend fun scheduleFromDirectBoot(notBeforeEpochMillis: Long) {
+    private fun chooseTrigger(
+        now: java.time.ZonedDateTime,
+        pattern: ShiftPattern?,
+        overrides: List<DayOverride>,
+        exceptions: List<AlarmException>,
+        snoozeEpochMillis: Long?,
+        snoozeShiftName: String,
+    ): ScheduledTrigger? {
+        val planned = pattern?.let {
+            NextAlarmPlanner.earliest(
+                now = now,
+                pattern = it,
+                overrides = overrides.associateBy { override -> override.date },
+                alarmExceptions = exceptions.associateBy { exception -> exception.date },
+            )
+        }
+        return NextTriggerSelector.select(
+            nowEpochMillis = now.toInstant().toEpochMilli(),
+            snoozeEpochMillis = snoozeEpochMillis,
+            snoozeShiftName = snoozeShiftName,
+            planned = planned,
+        )
+    }
+
+    private suspend fun scheduleFromDirectBoot(nowEpochMillis: Long) {
         val snapshot = directBootStore.read()
-        if (snapshot?.pattern == null && snapshot?.triggerEpochMillis == null && snapshot?.snoozeEpochMillis == null) {
+        if (snapshot == null) {
             alarmManager.cancel(firePending())
             return
         }
-        val stored = snapshot ?: return
         val zone = ZoneId.systemDefault()
-        val notBefore = Instant.ofEpochMilli(notBeforeEpochMillis).atZone(zone).toLocalDateTime()
-        var snoozeEpoch = stored.snoozeEpochMillis
-        var snoozeName = stored.snoozeShiftName
-        if (snoozeEpoch != null && snoozeEpoch <= notBeforeEpochMillis) {
+        val now = Instant.ofEpochMilli(nowEpochMillis).atZone(zone)
+        var snoozeEpoch = snapshot.snoozeEpochMillis
+        var snoozeName = snapshot.snoozeShiftName
+        if (snoozeEpoch != null && snoozeEpoch <= nowEpochMillis) {
             snoozeEpoch = null
             snoozeName = ""
         }
-        val planned = stored.pattern?.let { pattern ->
-            NextAlarmPlanner.nextShiftAlarm(
-                now = notBefore,
-                pattern = pattern,
-                overrides = stored.overrides.associateBy { it.date },
-                alarmExceptions = stored.exceptions.associateBy { it.date },
-            )
-        }
-        val selected = NextTriggerSelector.select(
-            notBeforeEpochMillis = notBeforeEpochMillis,
+        val selected = chooseTrigger(
+            now = now,
+            pattern = snapshot.pattern,
+            overrides = snapshot.overrides,
+            exceptions = snapshot.exceptions,
             snoozeEpochMillis = snoozeEpoch,
             snoozeShiftName = snoozeName,
-            planned = planned,
-            zone = zone,
         )
         arm(
             selected,
-            stored.copy(
+            snapshot.copy(
                 triggerEpochMillis = selected?.epochMillis,
                 shiftName = selected?.shiftName.orEmpty(),
                 snooze = selected?.snooze == true,
@@ -275,6 +283,7 @@ class AlarmManagerAlarmScheduler @Inject constructor(
 
     private companion object {
         const val TAG: String = "ShiftAlarm"
+        const val MAIN_ACTIVITY: String = "com.walhalla.shiftalarm.MainActivity"
     }
 }
 

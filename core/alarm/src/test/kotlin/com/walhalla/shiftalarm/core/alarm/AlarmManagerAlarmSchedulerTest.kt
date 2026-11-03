@@ -44,7 +44,7 @@ class AlarmManagerAlarmSchedulerTest {
             FakeSettingsRepository(),
             DeviceProtectedAlarmStore(context),
         )
-        val notBefore = LocalDateTime.of(2026, 1, 1, 6, 0)
+        val notBefore = LocalDateTime.of(2026, 1, 1, 5, 0)
             .atZone(zone)
             .toInstant()
             .toEpochMilli()
@@ -53,7 +53,7 @@ class AlarmManagerAlarmSchedulerTest {
 
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         val scheduled = shadowOf(alarmManager).scheduledAlarms.single()
-        val expected = LocalDateTime.of(2026, 1, 1, 7, 0)
+        val expected = LocalDateTime.of(2026, 1, 1, 5, 30)
             .atZone(zone)
             .toInstant()
             .toEpochMilli()
