@@ -37,14 +37,17 @@ data class DirectBootSnapshot(
 )
 
 @Singleton
-class DeviceProtectedAlarmStore @Inject constructor(
-    @ApplicationContext context: Context,
+class DeviceProtectedAlarmStore private constructor(
+    private val file: File,
 ) {
+    @Inject
+    constructor(@ApplicationContext context: Context) : this(
+        File(context.createDeviceProtectedStorageContext().filesDir, DEFAULT_FILE),
+    )
+
     private val snapshotKey = stringPreferencesKey("snapshot_json")
     private val dataStore = PreferenceDataStoreFactory.create(
-        produceFile = {
-            File(context.createDeviceProtectedStorageContext().filesDir, "shift_alarm_direct_boot.preferences_pb")
-        },
+        produceFile = { file },
     )
 
     suspend fun read(): DirectBootSnapshot? {
@@ -57,6 +60,12 @@ class DeviceProtectedAlarmStore @Inject constructor(
         dataStore.edit { prefs ->
             prefs[snapshotKey] = encoded
         }
+    }
+
+    internal companion object {
+        const val DEFAULT_FILE: String = "shift_alarm_direct_boot.preferences_pb"
+
+        fun create(file: File): DeviceProtectedAlarmStore = DeviceProtectedAlarmStore(file)
     }
 }
 

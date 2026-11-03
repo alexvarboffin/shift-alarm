@@ -117,7 +117,7 @@ Room (`shift-alarm.db`, схема версии 2 в `core/database/schemas`, м
 
 DataStore Preferences (`shift_alarm_settings`) хранит скаляры, которые не ищутся по дате: минуты snooze, вибрацию, флаг `use_dynamic_color` (по умолчанию включён) и один маркер отложенного звонка (`pending_snooze_epoch_millis`, имя смены). Маркер нужен, чтобы после перезагрузки `scheduleNext` снова поставил именно snooze, а не сразу следующую смену. Это не таблица истории будильников.
 
-Активный график живёт в Room (`patterns.isActive`), а не в DataStore: смена активного графика и запись цикла должны быть одной транзакцией.
+Активный график живёт в Room (`patterns.isActive`), а не в DataStore. `saveAndActivate` снимает прежний активный флаг, пишет типы, паттерн и слоты одной `@Transaction`. Если слот ссылается на отсутствующий тип, транзакция откатывается и прежний график остаётся активным.
 
 ## Контракты для UI и feature
 
@@ -131,6 +131,7 @@ interface ShiftRepository {
     fun observeOverrides(): Flow<List<DayOverride>>
     suspend fun upsertPattern(pattern: ShiftPattern)
     suspend fun setActivePattern(patternId: String?)
+    suspend fun saveAndActivate(pattern: ShiftPattern)
     suspend fun upsertOverride(override: DayOverride)
     suspend fun deleteOverride(date: LocalDate)
 }
@@ -237,11 +238,11 @@ sealed interface RingingUiState {
 
 Планировщик ставит только следующий момент, через `AlarmManager.setAlarmClock`. Повтор всей серии в AlarmManager не кладётся.
 
-1. Сохранили или выбрали график, либо сработал один из пяти защищённых системных action. `RescheduleReceiver` вызывает `scheduleNext(now)`.
-2. `scheduleNext(now)` читает активный паттерн, подмены дней, исключения будильника и маркер snooze. Если snooze строго позже `now` — ставится он. Иначе `NextAlarmPlanner.earliest` ищет ближайший момент. Нет кандидата — pending intent отменяется. В AlarmManager всегда один `setAlarmClock`.
-3. Если `canScheduleExactAlarms()` ложно, `setAlarmClock` не вызывается. Экран настроек ведёт в системный диалог.
+1. `AlarmRescheduleWatcher` — единственный владелец пересчёта после записи. Его стартует `ShiftAlarmApp`. Он смотрит потоки паттернов, активного графика, подмен, исключений и настроек. `saveAndActivate`, `setOverride`, `clearOverride`, `setAlarmException` и `clearAlarmException` меняют эти потоки, watcher вызывает `scheduleNext(now)`, а тот заново пишет device-protected снимок. Экраны сами `scheduleNext` не зовут. Те же пять системных action по-прежнему приходят в `RescheduleReceiver`, и он тоже вызывает `scheduleNext(now)`.
+2. `scheduleNext(now)` читает активный паттерн, подмены дней, исключения будильника и маркер snooze. Если snooze строго позже `now` — ставится он. Иначе `NextAlarmPlanner.earliest` ищет ближайший момент. Нет кандидата — pending intent отменяется. В AlarmManager всегда один будильник.
+3. Если `canScheduleExactAlarms()` истинно, ставится `setAlarmClock`. Если ложно или `setAlarmClock` бросает `SecurityException`, ставится неточный запасной: сначала `setAndAllowWhileIdle`, при ошибке `setWindow` на 15 минут. Рядом показывается heads-up, что точные будильники выключены, и тап ведёт в системный запрос разрешения. Когда точные снова доступны, это уведомление снимается.
 4. Срабатывание приходит в `AlarmFireReceiver` (явный `PendingIntent`, `FLAG_IMMUTABLE`, `exported=false`). Он поднимает `RingingService` (`startForeground` с типом `specialUse`) и сразу вызывает `scheduleNext(now = время этого срабатывания)`, чтобы следующий слот встал, даже если пользователь не нажмёт «Стоп». Момент строго после `now`, поэтому тот же звонок не ставится ещё раз.
-5. Сервис берёт `PARTIAL_WAKE_LOCK` (потолок 10 минут), показывает уведомление категории `alarm` с full-screen intent на `RingingActivity` и системным звуком будильника. Вибрация выбирает один из двух каналов.
+5. Сервис берёт `PARTIAL_WAKE_LOCK` (потолок 10 минут) и системный звук будильника. Если `canUseFullScreenIntent()` истинно (ниже API 34 это всегда так), уведомление категории `alarm` открывает `RingingActivity` через full-screen intent. Если на API 34+ разрешение снято, full-screen intent не ставится: то же уведомление уходит как heads-up (`PRIORITY_MAX`, канал `IMPORTANCE_HIGH`). Вибрация выбирает один из двух каналов.
 6. «Стоп» вызывает `dismiss()`: маркер snooze стирается, снова считается следующая смена. «Отложить» пишет snooze в DataStore и заменяет единственный pending alarm. И активность, и кнопки уведомления идут в один `RingingService`.
 
 `LOCKED_BOOT_COMPLETED` приходит до разблокировки, и будильник ставится из device-protected снимка. `BOOT_COMPLETED` приходит уже после разблокировки: credential-хранилище доступно, снимок при необходимости переносится в Room. `USER_UNLOCKED` манифест не слушает: платформа не доставляет его manifest-receiver.
@@ -262,13 +263,13 @@ sealed interface RingingUiState {
 
 До API 31 `canScheduleExactAlarms()` возвращает true: `setAlarmClock` на этих версиях не требует отдельного разрешения. Отдельного типа FGS «alarm» у платформы нет, поэтому звонок объявлен как `specialUse`.
 
-`RescheduleReceiver` — единственный `exported=true`. В фильтре ровно пять защищённых системных action: `LOCKED_BOOT_COMPLETED`, `BOOT_COMPLETED`, `TIME_SET`, `TIMEZONE_CHANGED`, `MY_PACKAGE_REPLACED`. `onReceive` пересчитывает будильник только если `intent.action` входит в этот набор. Чужой явный intent с другим action игнорируется.
+`RescheduleReceiver` — `exported=true` только ради пяти защищённых системных action: `LOCKED_BOOT_COMPLETED`, `BOOT_COMPLETED`, `TIME_SET`, `TIMEZONE_CHANGED`, `MY_PACKAGE_REPLACED`. Других action в фильтре нет. `onReceive` пересчитывает будильник только если `intent.action` входит в этот набор. Чужой явный intent с другим action игнорируется. `USER_UNLOCKED` не слушаем: manifest-receiver его не получает, после разблокировки приходит `BOOT_COMPLETED`.
 
 `AlarmFireReceiver` без intent-filter и `exported=false`. Его будит только явный `PendingIntent` с `FLAG_IMMUTABLE` и action `com.walhalla.shiftalarm.action.ALARM_FIRE`. Иконка будильника в шторке (`AlarmClockInfo`) тоже явный `PendingIntent` на `MainActivity` с `FLAG_IMMUTABLE`.
 
 ## Виджет
 
-Glance App Widget, подпись в списке виджетов: «завтра: смена/выходной». `TomorrowShiftWidgetReceiver` объявлен `exported=false`: `APPWIDGET_UPDATE` система шлёт явно на этот компонент, и фильтр для лаунчера при этом остаётся. Текст считает `tomorrowLabel`: `завтра: ` плюс имя смены в нижнем регистре (`завтра: день`, `завтра: ночь`, `завтра: отсыпной`, `завтра: сутки`, `завтра: выходной`). Нет активного графика или цикл пуст — `завтра: выходной`. Нажатие — явный `PendingIntent` на `MainActivity` с `FLAG_IMMUTABLE` (Glance `actionStartActivity`). После записи графика `ScheduleViewModel` зовёт `HomeWidgetRefresher`.
+Glance App Widget, подпись в списке виджетов: «завтра: смена/выходной». `TomorrowShiftWidgetReceiver` объявлен `exported=true`, иначе лаунчер прячет провайдер из пикера виджетов. В intent-filter только `android.appwidget.action.APPWIDGET_UPDATE`. Текст считает `tomorrowLabel`: `завтра: ` плюс имя смены в нижнем регистре (`завтра: день`, `завтра: ночь`, `завтра: отсыпной`, `завтра: сутки`, `завтра: выходной`). Нет активного графика или цикл пуст — `завтра: выходной`. Нажатие — явный `PendingIntent` на `MainActivity` с `FLAG_IMMUTABLE` (Glance `actionStartActivity`), не широковещательный intent. После записи графика `ScheduleViewModel` зовёт `HomeWidgetRefresher`. Пересчёт будильника при этом делает `AlarmRescheduleWatcher`, не экран.
 
 ## Каталог версий
 
@@ -305,7 +306,7 @@ Glance App Widget, подпись в списке виджетов: «завтр
 Для UI и feature:
 
 - Календарь. Методы ViewModel, как в feature PR: `setOverride`, `clearOverride`, `setAlarmException`, `clearAlarmException`, `showMonth`. Те же имена у `CalendarEvent` (`SetOverride(date, shiftTypeId?)` и остальные). `shiftTypeId == null` снимает подмену. `CalendarUiState.selectedDay` — деталь выбранного дня.
-- `errorMessage` во всех UiState — `UiText?` (`Res` / `Raw`, `resolve(context)`), тип в `:core:ui`. В PR фич своего `UiText` не было.
+- `errorMessage` во всех UiState — `UiText?`. Единственный тип в `:core:ui`: sealed `Res(@StringRes id, args)` и `Raw(String)`. `Raw` оставлен для уже готового текста (проверка ввода, `Throwable.message`); обычные строки экрана — `Res`. `resolve(context)` и `@Composable resolve()` дают строку. `String.asUiText()` и `@StringRes Int.asUiText()` собирают значение. В PR фич своего `UiText` не было.
 - Свой график остаётся в v1. `ScheduleUiState.editor: PatternEditorUiState?` (имя, дата старта, `slots: List<ShiftTypeId>`, `availableTypes`, текст проверки). События: `AddSlot`, `RemoveSlot`, `MoveSlot`, `SetName`, `SetStartDate`, `SetStartTime`, `SetLeadMinutes`, `Save`. Длина цикла 1..31, это `PatternLimits`. `applyTemplate(CUSTOM)` открывает черновик, `Save` кладёт паттерн в Room и делает его активным. `SetStartTime` / `SetLeadMinutes` меняют начало и упреждение типа в черновике.
 - Настройки. `snoozeOptions = [5, 10, 15, 20, 30]`, выбранное значение — `selectedSnooze`. Событие `SettingsEvent.SelectSnooze`. Минуты вне списка отбрасываются.
 - Динамический цвет. `UserSettings.useDynamicColor` в DataStore, ключ `use_dynamic_color`, по умолчанию `true`. `ShiftAlarmTheme(useDynamicColor)` подключает `dynamicLightColorScheme` / `dynamicDarkColorScheme` только на API 31+. Ниже остаётся своя палитра. Событие `SettingsEvent.SetUseDynamicColor`.
@@ -330,8 +331,18 @@ Glance App Widget, подпись в списке виджетов: «завтр
 - Один расчёт: `AlarmScheduler.scheduleNext(nowEpochMillis)` → `NextAlarmPlanner.earliest`. Горизонт около двух длин цикла. Берётся самый ранний момент строго после `now`.
 - Room версии 2. `shift_types`: `startHour`, `startMinute`, `alarmLeadMinutes`. `alarm_exceptions`: `customEpochDay`, `customHour`, `customMinute`. Миграция `MIGRATION_1_2` переносит старые `alarmHour`/`alarmMinute` в начало смены и ставит упреждение 90; старое время исключения становится абсолютным локальным временем того же дня.
 
+## Изменения T10d
+
+Для UI и Feature:
+
+- После `saveAndActivate` и любой календарной правки (`setOverride`, `clearOverride`, `setAlarmException`, `clearAlarmException`) будильник переставляет не экран, а `AlarmRescheduleWatcher` в `:core:alarm`. Он подписан на потоки репозиториев. `scheduleNext` заодно переписывает device-protected снимок.
+- `setOverride(date, null)` снимает подмену дня.
+- Нет разрешения на full-screen intent (API 34+): звонок — heads-up с `PRIORITY_MAX`, без `setFullScreenIntent`. Канал по-прежнему `IMPORTANCE_HIGH`.
+- Нет точных будильников: вместо `setAlarmClock` вызывается `setAndAllowWhileIdle`, а если он отклонён — `setWindow`. Плюс уведомление «Точные будильники выключены».
+- `UiText`: `Res` + `Raw`, `resolve(context)`, composable `resolve()`, `asUiText()` для `String` и string-resource `Int`.
+
 ## Изменения T10e
 
-- `TomorrowShiftWidgetReceiver` — `android:exported="false"`. `APPWIDGET_UPDATE` система доставляет явно. Нажатие на виджет открывает `MainActivity` явным `PendingIntent` с `FLAG_IMMUTABLE`.
-- `AlarmFireReceiver` — `exported=false`, без intent-filter. `setAlarmClock` и показ будильника используют явные `PendingIntent` с `FLAG_IMMUTABLE`. Чужой action приёмник игнорирует.
-- `RescheduleReceiver` — единственный `exported=true`. Фильтр и проверка в `onReceive` — пять защищённых action: `LOCKED_BOOT_COMPLETED`, `BOOT_COMPLETED`, `TIME_SET`, `TIMEZONE_CHANGED`, `MY_PACKAGE_REPLACED`. `USER_UNLOCKED` убран: manifest-receiver его не получает, после разблокировки приходит `BOOT_COMPLETED`.
+- `TomorrowShiftWidgetReceiver` — `exported=true`. Иначе лаунчер не показывает его в пикере. Фильтр только `android.appwidget.action.APPWIDGET_UPDATE`. Нажатие открывает `MainActivity` явным `PendingIntent` с `FLAG_IMMUTABLE`.
+- `AlarmFireReceiver`, `RingingService` и `RingingActivity` — `exported=false`. `setAlarmClock` и иконка будильника — явные `PendingIntent` с `FLAG_IMMUTABLE`. Чужой action у `AlarmFireReceiver` игнорируется.
+- `RescheduleReceiver` — `exported=true` только с пятью action: `LOCKED_BOOT_COMPLETED`, `BOOT_COMPLETED`, `TIME_SET`, `TIMEZONE_CHANGED`, `MY_PACKAGE_REPLACED`. `onReceive` игнорирует всё остальное. `USER_UNLOCKED` нет: manifest-receiver его не получает, после разблокировки приходит `BOOT_COMPLETED`.

@@ -86,6 +86,9 @@ abstract class ShiftDao {
         slots: List<PatternSlotEntity>,
     ) {
         clearActive()
-        savePattern(types, pattern.copy(isActive = true), slots)
+        types.forEach { upsertShiftType(it) }
+        upsertPattern(pattern)
+        deleteSlots(pattern.id)
+        slots.forEach { insertSlot(it) }
     }
 }

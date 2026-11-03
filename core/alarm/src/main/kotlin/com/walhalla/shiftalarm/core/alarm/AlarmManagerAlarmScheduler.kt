@@ -1,6 +1,8 @@
 package com.walhalla.shiftalarm.core.alarm
 
 import android.app.AlarmManager
+import android.app.Notification
+import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.ComponentName
@@ -9,6 +11,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.UserManager
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import com.walhalla.shiftalarm.core.model.AlarmException
 import com.walhalla.shiftalarm.core.model.AlarmRepository
 import com.walhalla.shiftalarm.core.model.DayOverride
@@ -263,27 +266,90 @@ class AlarmManagerAlarmScheduler @Inject constructor(
                 snooze = selected?.snooze == true,
             ),
         )
+        val notifications = context.getSystemService(NotificationManager::class.java)
         if (selected == null) {
             alarmManager.cancel(firePending())
+            notifications.cancel(AlarmIntents.NOTIFICATION_EXACT_DENIED)
             return
         }
-        if (!canScheduleExactAlarms()) {
-            Log.w(TAG, "Exact alarms are not allowed. Next trigger ${selected.epochMillis} stays unarmed.")
-            return
+        val operation = firePending(selected)
+        if (canScheduleExactAlarms()) {
+            notifications.cancel(AlarmIntents.NOTIFICATION_EXACT_DENIED)
+            try {
+                alarmManager.setAlarmClock(
+                    AlarmManager.AlarmClockInfo(selected.epochMillis, showPending()),
+                    operation,
+                )
+                return
+            } catch (error: SecurityException) {
+                Log.e(TAG, "setAlarmClock was rejected", error)
+            }
+        } else {
+            Log.w(TAG, "Exact alarms are off. Arming an inexact fallback for ${selected.epochMillis}.")
         }
+        scheduleInexactFallback(selected.epochMillis, operation)
+        notifyExactAlarmsDenied(notifications)
+    }
+
+    private fun scheduleInexactFallback(triggerAt: Long, operation: PendingIntent) {
         try {
-            alarmManager.setAlarmClock(
-                AlarmManager.AlarmClockInfo(selected.epochMillis, showPending()),
-                firePending(selected),
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, operation)
+        } catch (error: Exception) {
+            Log.e(TAG, "setAndAllowWhileIdle failed, using setWindow", error)
+            alarmManager.setWindow(
+                AlarmManager.RTC_WAKEUP,
+                triggerAt,
+                INEXACT_WINDOW_MILLIS,
+                operation,
             )
+        }
+    }
+
+    private fun notifyExactAlarmsDenied(notifications: NotificationManager) {
+        val channelId = "shift_alarm_exact"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (notifications.getNotificationChannel(channelId) == null) {
+                val channel = NotificationChannel(
+                    channelId,
+                    "Точные будильники",
+                    NotificationManager.IMPORTANCE_HIGH,
+                ).apply {
+                    description = "Предупреждение, если точный будильник недоступен"
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                }
+                notifications.createNotificationChannel(channel)
+            }
+        }
+        val settings = AlarmPermissionIntents.requestExactAlarm(context)
+        val content = settings?.let { intent ->
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            PendingIntent.getActivity(
+                context,
+                AlarmIntents.NOTIFICATION_EXACT_DENIED,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.drawable.ic_stat_shift)
+            .setContentTitle("Точные будильники выключены")
+            .setContentText("Смена поставлена приблизительно и может прозвенеть с задержкой.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setAutoCancel(true)
+            .setContentIntent(content)
+            .build()
+        try {
+            notifications.notify(AlarmIntents.NOTIFICATION_EXACT_DENIED, notification)
         } catch (error: SecurityException) {
-            Log.e(TAG, "setAlarmClock was rejected", error)
+            Log.e(TAG, "Exact-alarm warning was not posted", error)
         }
     }
 
     private companion object {
         const val TAG: String = "ShiftAlarm"
         const val MAIN_ACTIVITY: String = "com.walhalla.shiftalarm.MainActivity"
+        const val INEXACT_WINDOW_MILLIS: Long = 15 * 60_000L
     }
 }
 

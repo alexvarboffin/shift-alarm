@@ -111,13 +111,11 @@ class RingingService : Service() {
             .setSmallIcon(R.drawable.ic_stat_shift)
             .setContentTitle(title)
             .setContentText(text)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setAutoCancel(false)
             .setContentIntent(content)
-            .setFullScreenIntent(content, true)
+            .presentRinging(content, scheduler.canUseFullScreenIntent())
             .addAction(0, "Стоп", stop)
             .addAction(0, "Отложить", snoozeAction)
             .build()
@@ -139,6 +137,7 @@ class RingingService : Service() {
         val id = channelId(vibration)
         if (manager.getNotificationChannel(id) != null) return
         val name = if (vibration) "Будильник смены" else "Будильник смены без вибрации"
+        // IMPORTANCE_HIGH is the heads-up channel used when full-screen intent is denied.
         val channel = NotificationChannel(id, name, NotificationManager.IMPORTANCE_HIGH).apply {
             description = "Сигнал начала смены"
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
@@ -189,5 +188,20 @@ class RingingService : Service() {
         private const val CHANNEL_VIBRATE: String = "shift_alarm_ring_vibrate"
         private const val CHANNEL_QUIET: String = "shift_alarm_ring_quiet"
         private const val WAKE_LOCK_TIMEOUT_MILLIS: Long = 10 * 60 * 1000L
+    }
+}
+
+/**
+ * Full-screen intent when the app may use one. Otherwise a high-priority heads-up
+ * on the IMPORTANCE_HIGH ringing channel, with no full-screen intent.
+ */
+internal fun NotificationCompat.Builder.presentRinging(
+    content: PendingIntent,
+    fullScreen: Boolean,
+): NotificationCompat.Builder = apply {
+    setPriority(NotificationCompat.PRIORITY_MAX)
+    setCategory(NotificationCompat.CATEGORY_ALARM)
+    if (fullScreen) {
+        setFullScreenIntent(content, true)
     }
 }

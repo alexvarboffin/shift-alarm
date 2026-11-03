@@ -2,9 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application>
+        <!--
+            exported=true on purpose. Launchers drop non-exported providers from the
+            widget picker. The filter is only APPWIDGET_UPDATE; clicks use an explicit
+            immutable PendingIntent, not a broadcast.
+        -->
         <receiver
             android:name=".TomorrowShiftWidgetReceiver"
-            android:exported="false"
+            android:exported="true"
             android:label="@string/widget_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

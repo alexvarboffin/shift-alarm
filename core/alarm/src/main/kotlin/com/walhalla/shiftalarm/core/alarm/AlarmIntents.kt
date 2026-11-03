@@ -11,4 +11,5 @@ object AlarmIntents {
     const val REQUEST_CONTENT: Int = 4103
     const val REQUEST_STOP: Int = 4104
     const val REQUEST_SNOOZE: Int = 4105
+    const val NOTIFICATION_EXACT_DENIED: Int = 4106
 }

@@ -1,7 +1,10 @@
 package com.walhalla.shiftalarm.core.alarm
 
+import android.Manifest
 import android.app.AlarmManager
 import android.app.Application
+import android.app.Notification
+import android.app.NotificationManager
 import com.walhalla.shiftalarm.core.model.AlarmException
 import com.walhalla.shiftalarm.core.model.AlarmRepository
 import com.walhalla.shiftalarm.core.model.DayOverride
@@ -11,6 +14,7 @@ import com.walhalla.shiftalarm.core.model.ShiftRepository
 import com.walhalla.shiftalarm.core.model.ShiftTemplates
 import com.walhalla.shiftalarm.core.model.ShiftType
 import com.walhalla.shiftalarm.core.model.UserSettings
+import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -20,6 +24,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -42,7 +48,7 @@ class AlarmManagerAlarmSchedulerTest {
             FakeShiftRepository(pattern),
             FakeAlarmRepository(),
             FakeSettingsRepository(),
-            DeviceProtectedAlarmStore(context),
+            DeviceProtectedAlarmStore.create(File(context.cacheDir, "exact-on.preferences_pb")),
         )
         val notBefore = LocalDateTime.of(2026, 1, 1, 5, 0)
             .atZone(zone)
@@ -59,6 +65,39 @@ class AlarmManagerAlarmSchedulerTest {
             .toEpochMilli()
         assertEquals(expected, scheduled.triggerAtMs)
         assertNotNull(scheduled.alarmClockInfo)
+    }
+
+    @Test
+    fun scheduleNext_withoutExactAlarmUsesInexactFallbackAndWarns() = runBlocking {
+        ShadowAlarmManager.setCanScheduleExactAlarms(false)
+        val context = RuntimeEnvironment.getApplication()
+        shadowOf(context).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val zone = ZoneId.systemDefault()
+        val pattern = ShiftTemplates.twoTwo(LocalDate.of(2026, 1, 1))
+        val scheduler = AlarmManagerAlarmScheduler(
+            context,
+            FakeShiftRepository(pattern),
+            FakeAlarmRepository(),
+            FakeSettingsRepository(),
+            DeviceProtectedAlarmStore.create(File(context.cacheDir, "exact-off.preferences_pb")),
+        )
+        val notBefore = LocalDateTime.of(2026, 1, 1, 5, 0)
+            .atZone(zone)
+            .toInstant()
+            .toEpochMilli()
+
+        scheduler.scheduleNext(notBefore)
+
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        val scheduled = shadowOf(alarmManager).scheduledAlarms.single()
+        assertNull(scheduled.alarmClockInfo)
+        assertTrue(scheduled.isAllowWhileIdle || scheduled.windowLengthMs > 0)
+        val notification = shadowOf(context.getSystemService(NotificationManager::class.java))
+            .getNotification(AlarmIntents.NOTIFICATION_EXACT_DENIED)
+        assertEquals(
+            "Точные будильники выключены",
+            notification?.extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+        )
     }
 }
 
