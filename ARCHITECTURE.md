@@ -162,7 +162,7 @@ interface HomeWidgetRefresher {
 
 ```kotlin
 interface AlarmScheduler {
-    suspend fun scheduleNext(notBeforeEpochMillis: Long = System.currentTimeMillis())
+    suspend fun scheduleNext(nowEpochMillis: Long = System.currentTimeMillis())
     suspend fun cancelNext()
     suspend fun snooze(minutes: Int, shiftName: String)
     suspend fun dismiss()
@@ -332,7 +332,7 @@ Glance App Widget, подпись в списке виджетов: «завтр
 - `CalendarEvent.SetAlarmException.customTime` и `SelectedDayDetail.customAlarmTime` — абсолютный `LocalDateTime?`, не `LocalTime`.
 - `ResolvedShift.alarmAt` и `PlannedAlarm.triggerAt` — `ZonedDateTime?`. Номинальный момент: `ZonedDateTime.of(дата смены, startTime, системная зона) minus alarmLeadMinutes` (при перекрытии — раннее смещение). Если он уже не позже `now`, планировщик берёт `withLaterOffsetAtOverlap()` того же дня.
 - Один расчёт: `AlarmScheduler.scheduleNext(nowEpochMillis)` → `NextAlarmPlanner.earliest`. Горизонт около двух длин цикла. Берётся самый ранний момент строго после `now`, с учётом позднего смещения в день осеннего перекрытия.
-- Room версии 2. `shift_types`: `startHour`, `startMinute`, `alarmLeadMinutes`. `alarm_exceptions`: `customEpochDay`, `customHour`, `customMinute`. Миграция `MIGRATION_1_2` переносит старые `alarmHour`/`alarmMinute` в начало смены и ставит упреждение 90; старое время исключения становится абсолютным локальным временем того же дня.
+- Room версии 3. `shift_types`: `startHour`, `startMinute`, `alarmLeadMinutes`, `colorLight`, `colorDark`. `alarm_exceptions`: `customEpochDay`, `customHour`, `customMinute`. Миграция `MIGRATION_1_2` переносит старые `alarmHour`/`alarmMinute` в начало смены и ставит упреждение 90; старое время исключения становится абсолютным локальным временем того же дня. `MIGRATION_2_3` заменяет `colorArgb` на `colorLight` и `colorDark`.
 
 ## Изменения T10d
 
