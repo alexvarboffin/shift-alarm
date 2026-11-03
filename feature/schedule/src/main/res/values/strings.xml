@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="schedule_intro">Цикл начнётся с сегодняшнего дня. Потом его можно сменить на календаре точечными исключениями.</string>
+    <string name="schedule_templates_title">Шаблоны</string>
+    <string name="schedule_saved_title">Сохранённые графики</string>
+    <string name="schedule_template_two_two">2/2</string>
+    <string name="schedule_template_three_three">3/3</string>
+    <string name="schedule_template_one_three">Сутки-трое</string>
+    <string name="schedule_template_five_two">5/2</string>
+    <string name="schedule_template_custom">Свой график</string>
+    <string name="schedule_loading">Загрузка графика</string>
+    <string name="schedule_empty_title">Нет сохранённого графика</string>
+    <string name="schedule_empty_body">Выберите шаблон выше.</string>
+    <string name="schedule_start_date">Старт %1$s</string>
+    <string name="schedule_cycle_separator">" · "</string>
+    <string name="schedule_active">Активный</string>
+    <string name="schedule_make_active">Сделать активным</string>
+    <string name="schedule_retry">Повторить</string>
+    <string name="schedule_dismiss">Закрыть</string>
+    <string name="schedule_editor_title">Свой график</string>
+    <string name="schedule_editor_name">Название</string>
+    <string name="schedule_editor_start">Дата старта</string>
+    <string name="schedule_editor_previous_day">Предыдущий день</string>
+    <string name="schedule_editor_next_day">Следующий день</string>
+    <string name="schedule_editor_slots">Слоты цикла</string>
+    <string name="schedule_editor_limit">В цикле от %1$d до %2$d дней.</string>
+    <string name="schedule_editor_add">Добавить слот</string>
+    <string name="schedule_editor_remove">Удалить слот</string>
+    <string name="schedule_editor_move_up">Выше</string>
+    <string name="schedule_editor_move_down">Ниже</string>
+    <string name="schedule_editor_save">Сохранить график</string>
+    <string name="schedule_editor_empty_slots">Добавьте хотя бы один день.</string>
+    <string name="date_d_month_year">%1$d %2$s %3$d</string>
+
+    <string-array name="months_genitive">
+        <item>января</item>
+        <item>февраля</item>
+        <item>марта</item>
+        <item>апреля</item>
+        <item>мая</item>
+        <item>июня</item>
+        <item>июля</item>
+        <item>августа</item>
+        <item>сентября</item>
+        <item>октября</item>
+        <item>ноября</item>
+        <item>декабря</item>
+    </string-array>
+</resources>

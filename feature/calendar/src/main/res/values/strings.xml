@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="calendar_previous_month">Предыдущий месяц</string>
+    <string name="calendar_next_month">Следующий месяц</string>
+    <string name="calendar_month_year">%1$s %2$d</string>
+    <string name="calendar_loading">Загрузка календаря</string>
+    <string name="calendar_retry">Повторить</string>
+    <string name="calendar_dismiss">Закрыть</string>
+    <string name="calendar_empty">Нет дней для отображения.</string>
+    <string name="calendar_no_pattern">Сначала выберите график. Пока активного цикла нет, дни без смены.</string>
+    <string name="calendar_no_shift">Нет смены</string>
+    <string name="calendar_alarm">Будильник %1$s</string>
+    <string name="calendar_no_alarm">Без будильника</string>
+    <string name="calendar_override">Исключение на эту дату</string>
+    <string name="calendar_today">сегодня</string>
+    <string name="calendar_select_day">Выбрать день</string>
+    <string name="calendar_day_cd">%1$d, %2$s</string>
+    <string name="calendar_short_day">Д</string>
+    <string name="calendar_short_night">Н</string>
+    <string name="calendar_short_after">От</string>
+    <string name="calendar_short_off">В</string>
+    <string name="calendar_short_duty">С</string>
+    <string name="calendar_edit_day">День</string>
+    <string name="calendar_shift_type">Смена на эту дату</string>
+    <string name="calendar_clear_override">Убрать исключение</string>
+    <string name="calendar_alarm_switch">Будильник</string>
+    <string name="calendar_alarm_time">Время будильника</string>
+    <string name="calendar_hour_minus">Минус час</string>
+    <string name="calendar_hour_plus">Плюс час</string>
+    <string name="calendar_minute_minus">Минус 5 минут</string>
+    <string name="calendar_minute_plus">Плюс 5 минут</string>
+    <string name="calendar_clear_alarm">Вернуть время смены</string>
+    <string name="calendar_no_types">Нет типов смены.</string>
+    <string name="date_d_month_year">%1$d %2$s %3$d</string>
+
+    <string-array name="calendar_months">
+        <item>Январь</item>
+        <item>Февраль</item>
+        <item>Март</item>
+        <item>Апрель</item>
+        <item>Май</item>
+        <item>Июнь</item>
+        <item>Июль</item>
+        <item>Август</item>
+        <item>Сентябрь</item>
+        <item>Октябрь</item>
+        <item>Ноябрь</item>
+        <item>Декабрь</item>
+    </string-array>
+
+    <string-array name="months_genitive">
+        <item>января</item>
+        <item>февраля</item>
+        <item>марта</item>
+        <item>апреля</item>
+        <item>мая</item>
+        <item>июня</item>
+        <item>июля</item>
+        <item>августа</item>
+        <item>сентября</item>
+        <item>октября</item>
+        <item>ноября</item>
+        <item>декабря</item>
+    </string-array>
+
+    <string-array name="calendar_weekdays">
+        <item>Пн</item>
+        <item>Вт</item>
+        <item>Ср</item>
+        <item>Чт</item>
+        <item>Пт</item>
+        <item>Сб</item>
+        <item>Вс</item>
+    </string-array>
+</resources>
