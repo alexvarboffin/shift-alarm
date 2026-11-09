@@ -234,6 +234,7 @@ sealed interface SettingsEvent {
 // В ScheduleEvent и CalendarEvent, кроме событий экрана:
 //   data object Retry        — перечитать данные, очищает loadError и commandError
 //   data object DismissError — очищает только commandError
+// Только в CalendarEvent: data object ClearSelection — закрыть шторку дня, VM ставит selected = null и selectedDay = null
 
 sealed interface RingingUiState {
     data object Loading : RingingUiState
