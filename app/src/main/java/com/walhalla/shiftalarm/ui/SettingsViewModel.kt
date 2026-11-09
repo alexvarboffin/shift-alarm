@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.walhalla.shiftalarm.R
 import com.walhalla.shiftalarm.core.alarm.AlarmScheduler
+import com.walhalla.shiftalarm.core.alarm.RingingChannels
 import com.walhalla.shiftalarm.core.model.AppPermission
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.UserSettings
@@ -18,12 +19,14 @@ import com.walhalla.shiftalarm.core.ui.UiText
 import java.time.Clock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -54,9 +57,25 @@ class SettingsViewModel internal constructor(
         settingsRepository.settings.keepAlive(UserSettings()) { readError.value = readFailure() }
     }
 
+    /**
+     * The "already asked" set the statuses are built from. Taken from the store on the first read,
+     * then only in [refreshPermissions], so a mark written while the system dialog is open does not
+     * flip the status to DENIED_PERMANENTLY before the user answers.
+     */
+    private val publishedAsked = MutableStateFlow<Set<AppPermission>>(emptySet())
+    @Volatile private var latestAsked: Set<AppPermission> = emptySet()
+    @Volatile private var askedLoaded = false
+    private var pendingMark: Job? = null
+
     private val requested = reload.flatMapLatest {
         settingsRepository.requestedPermissions.keepAlive(emptySet()) { readError.value = readFailure() }
-    }
+    }.onEach { stored ->
+        latestAsked = stored
+        if (!askedLoaded) {
+            askedLoaded = true
+            publishedAsked.value = stored
+        }
+    }.flatMapLatest { publishedAsked }
 
     val uiState: StateFlow<SettingsUiState> = combine(
         settings,
@@ -75,14 +94,21 @@ class SettingsViewModel internal constructor(
         if (error != null) {
             base
         } else {
+            val channelId = RingingChannels.idFor(prefs.vibrationEnabled)
+            val channelOff = channelId in grant.blockedChannels
+            val notifications = notificationStatus(
+                sdkInt = sdkInt,
+                enabled = grant.notificationsEnabled,
+                granted = grant.notifications,
+                requested = AppPermission.NOTIFICATIONS in asked,
+                rationale = rationale,
+                channelOff = channelOff,
+            )
             base.copy(
-                notificationStatus = notificationStatus(
-                    sdkInt = sdkInt,
-                    enabled = grant.notificationsEnabled,
-                    granted = grant.notifications,
-                    requested = AppPermission.NOTIFICATIONS in asked,
-                    rationale = rationale,
-                ),
+                notificationStatus = notifications,
+                blockedChannelId = channelId.takeIf {
+                    channelOff && grant.notificationsEnabled && notifications == PermissionStatus.DENIED_PERMANENTLY
+                },
                 exactAlarmStatus = specialAccessStatus(
                     sdkInt = sdkInt,
                     since = Build.VERSION_CODES.S,
@@ -112,6 +138,10 @@ class SettingsViewModel internal constructor(
     fun refreshPermissions(notificationRationale: Boolean? = null) {
         if (notificationRationale != null) this.notificationRationale.value = notificationRationale
         grants.update { readGrants() }
+        workScope.launch {
+            pendingMark?.join()
+            publishedAsked.value = latestAsked
+        }
         workScope.launch { alarmScheduler.scheduleNext(clock.millis()) }
     }
 
@@ -125,9 +155,10 @@ class SettingsViewModel internal constructor(
                 workScope.launch { settingsRepository.setUseDynamicColor(event.enabled) }
             }
             is SettingsEvent.PermissionRequested -> {
-                workScope.launch {
+                pendingMark = workScope.launch {
                     try {
                         settingsRepository.markRequested(event.permission)
+                        latestAsked = latestAsked + event.permission
                     } catch (error: CancellationException) {
                         throw error
                     } catch (_: Exception) {
@@ -156,7 +187,16 @@ class SettingsViewModel internal constructor(
         notifications = notificationsGranted(),
         exact = alarmScheduler.canScheduleExactAlarms(),
         fullScreen = alarmScheduler.canUseFullScreenIntent(),
+        blockedChannels = blockedRingingChannels(),
     )
+
+    /** Ringing channels the user switched off (importance NONE). Channels exist from API 26. */
+    private fun blockedRingingChannels(): Set<String> {
+        val manager = NotificationManagerCompat.from(context)
+        return RingingChannels.all.filterTo(mutableSetOf()) { id ->
+            manager.getNotificationChannelCompat(id)?.importance == NotificationManagerCompat.IMPORTANCE_NONE
+        }
+    }
 
     /** Runtime permission only from API 33; below it [notificationStatus] uses areNotificationsEnabled. */
     private fun notificationsGranted(): Boolean {
@@ -172,5 +212,6 @@ class SettingsViewModel internal constructor(
         val notifications: Boolean,
         val exact: Boolean,
         val fullScreen: Boolean,
+        val blockedChannels: Set<String>,
     )
 }

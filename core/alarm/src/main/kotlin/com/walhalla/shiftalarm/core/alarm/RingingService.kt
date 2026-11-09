@@ -193,11 +193,19 @@ class RingingService : Service(), KoinComponent {
     }
 }
 
-internal const val RINGING_CHANNEL_VIBRATE: String = "shift_alarm_ring_vibrate"
-internal const val RINGING_CHANNEL_QUIET: String = "shift_alarm_ring_quiet"
+/** Ringing notification channels. Settings reads them to see if the user switched the current one off. */
+object RingingChannels {
+    const val VIBRATE: String = "shift_alarm_ring_vibrate"
+    const val QUIET: String = "shift_alarm_ring_quiet"
+    val all: List<String> = listOf(VIBRATE, QUIET)
 
-internal fun ringingChannelId(vibration: Boolean): String =
-    if (vibration) RINGING_CHANNEL_VIBRATE else RINGING_CHANNEL_QUIET
+    fun idFor(vibration: Boolean): String = if (vibration) VIBRATE else QUIET
+}
+
+internal const val RINGING_CHANNEL_VIBRATE: String = RingingChannels.VIBRATE
+internal const val RINGING_CHANNEL_QUIET: String = RingingChannels.QUIET
+
+internal fun ringingChannelId(vibration: Boolean): String = RingingChannels.idFor(vibration)
 
 /**
  * Before the first unlock the credential-encrypted settings store is unavailable.

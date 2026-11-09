@@ -53,8 +53,8 @@ class ScheduleViewModel internal constructor(
         reload.flatMapLatest { repository.observeActivePattern().keepAlive(null) { readError.value = readFailure() } },
         reload.flatMapLatest { repository.observeShiftTypes().keepAlive(emptyList()) { readError.value = readFailure() } },
         editor,
-        combine(commandError, readError) { command, read -> command ?: read },
-    ) { patterns, active, storedTypes, draft, error ->
+        combine(readError, commandError) { read, command -> read to command },
+    ) { patterns, active, storedTypes, draft, errors ->
         ScheduleUiState(
             isLoading = false,
             patterns = patterns.map { pattern ->
@@ -68,7 +68,8 @@ class ScheduleViewModel internal constructor(
             },
             activePatternId = active?.id,
             editor = draft?.toState(storedTypes),
-            errorMessage = error,
+            loadError = errors.first,
+            commandError = errors.second,
         )
     }.stateIn(
         scope = workScope,

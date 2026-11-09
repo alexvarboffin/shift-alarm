@@ -58,8 +58,8 @@ fun ScheduleScreen(
         Spacer(Modifier.height(20.dp))
         when {
             state.isLoading -> CircularProgressIndicator()
-            state.errorMessage != null -> Text(
-                text = state.errorMessage.resolve(LocalContext.current),
+            (state.loadError ?: state.commandError) != null -> Text(
+                text = (state.loadError ?: state.commandError)!!.resolve(LocalContext.current),
                 color = MaterialTheme.colorScheme.error,
             )
             state.patterns.isEmpty() -> Text(

@@ -2,7 +2,9 @@ package com.walhalla.shiftalarm.ui
 
 import android.app.Application
 import android.Manifest.permission.POST_NOTIFICATIONS
+import android.app.NotificationChannel
 import android.app.NotificationManager
+import com.walhalla.shiftalarm.core.alarm.RingingChannels
 import com.walhalla.shiftalarm.R
 import com.walhalla.shiftalarm.core.alarm.AlarmScheduler
 import com.walhalla.shiftalarm.core.model.AppPermission
@@ -159,7 +161,12 @@ class SettingsViewModelTest {
 
         viewModel.onEvent(SettingsEvent.PermissionRequested(AppPermission.EXACT_ALARM))
 
+        // Marked, but the status waits for the answer: no recount while the system screen is open.
         assertEquals(setOf(AppPermission.EXACT_ALARM), repository.requested.value)
+        assertEquals(PermissionStatus.NOT_ASKED, viewModel.uiState.value.exactAlarmStatus)
+
+        viewModel.refreshPermissions()
+
         assertEquals(PermissionStatus.DENIED_PERMANENTLY, viewModel.uiState.value.exactAlarmStatus)
         assertEquals(PermissionStatus.NOT_ASKED, viewModel.uiState.value.fullScreenIntentStatus)
     }
@@ -173,6 +180,41 @@ class SettingsViewModelTest {
         viewModel.onEvent(SettingsEvent.PermissionRequested(AppPermission.NOTIFICATIONS))
 
         assertEquals(UiText.Res(R.string.settings_error_write), viewModel.uiState.value.errorMessage)
+    }
+
+    @Test
+    fun ringingChannelOffIsDeniedAndPointsToTheChannel() {
+        val app = RuntimeEnvironment.getApplication()
+        val manager = app.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(RingingChannels.VIBRATE, "ring", NotificationManager.IMPORTANCE_NONE),
+        )
+        val viewModel = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = true), sdkInt = 28)
+        collect(viewModel)
+
+        val state = viewModel.uiState.value
+        assertEquals(PermissionStatus.DENIED_PERMANENTLY, state.notificationStatus)
+        assertEquals(RingingChannels.VIBRATE, state.blockedChannelId)
+    }
+
+    @Test
+    fun channelRuleOnEveryApi() {
+        assertEquals(
+            PermissionStatus.DENIED_PERMANENTLY,
+            notificationStatus(34, enabled = true, granted = true, requested = true, rationale = false, channelOff = true),
+        )
+        assertEquals(
+            PermissionStatus.DENIED_PERMANENTLY,
+            notificationStatus(34, enabled = false, granted = true, requested = true, rationale = false),
+        )
+        assertEquals(
+            PermissionStatus.NOT_ASKED,
+            notificationStatus(34, enabled = false, granted = false, requested = false, rationale = false, channelOff = true),
+        )
+        assertEquals(
+            PermissionStatus.DENIED_PERMANENTLY,
+            notificationStatus(28, enabled = true, granted = false, requested = false, rationale = false, channelOff = true),
+        )
     }
 
     @Test

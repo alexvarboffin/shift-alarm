@@ -37,6 +37,11 @@ data class SettingsUiState(
     val exactAlarmStatus: PermissionStatus = PermissionStatus.NOT_ASKED,
     val fullScreenIntentStatus: PermissionStatus = PermissionStatus.NOT_ASKED,
     val errorMessage: UiText? = null,
+    /**
+     * Set when notifications are DENIED_PERMANENTLY because the current ringing channel is off.
+     * The button then opens ACTION_CHANNEL_NOTIFICATION_SETTINGS for this id, otherwise app notification settings.
+     */
+    val blockedChannelId: String? = null,
 ) {
     val exactAlarm: Boolean get() = exactAlarmStatus.isSatisfied
     val fullScreenIntent: Boolean get() = fullScreenIntentStatus.isSatisfied
@@ -71,9 +76,14 @@ fun notificationStatus(
     granted: Boolean,
     requested: Boolean,
     rationale: Boolean,
-): PermissionStatus = when {
-    sdkInt < 33 -> if (enabled) PermissionStatus.NOT_REQUIRED else PermissionStatus.DENIED_PERMANENTLY
-    else -> permissionStatus(granted, requested, rationale)
+    channelOff: Boolean = false,
+): PermissionStatus {
+    val base = when {
+        sdkInt < 33 -> if (enabled) PermissionStatus.NOT_REQUIRED else PermissionStatus.DENIED_PERMANENTLY
+        else -> permissionStatus(granted, requested, rationale)
+    }
+    // Granted is not enough: app notifications or the ringing channel can be off in system settings.
+    return if (base.isSatisfied && (!enabled || channelOff)) PermissionStatus.DENIED_PERMANENTLY else base
 }
 
 /** Special access (exact alarm from API 31, full-screen intent from API 34): no dialog, only settings. */

@@ -51,7 +51,7 @@ class CalendarViewModel(
 
     val uiState: StateFlow<CalendarUiState> = combine(
         combine(month, selectedDate, commandError, readError) { visibleMonth, selected, command, read ->
-            Cursor(visibleMonth, selected, command ?: read)
+            Cursor(visibleMonth, selected, read, command)
         },
         reload.flatMapLatest { shiftRepository.observeActivePattern().keepAlive(null) { readError.value = loadError() } },
         reload.flatMapLatest { shiftRepository.observeOverrides().keepAlive(emptyList()) { readError.value = loadError() } },
@@ -70,7 +70,8 @@ class CalendarViewModel(
                 detail(date, pattern, overrides, exceptions, options)
             },
             hasActivePattern = pattern != null && pattern.cycle.isNotEmpty(),
-            errorMessage = cursor.error,
+            loadError = cursor.loadError,
+            commandError = cursor.commandError,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -83,7 +84,8 @@ class CalendarViewModel(
     private data class Cursor(
         val month: YearMonth,
         val selected: LocalDate?,
-        val error: UiText?,
+        val loadError: UiText?,
+        val commandError: UiText?,
     )
 
     fun showMonth(month: YearMonth) {
@@ -104,6 +106,12 @@ class CalendarViewModel(
     fun select(date: LocalDate) {
         selectedDate.value = date
         savedState[KEY_DAY] = date.toString()
+    }
+
+    /** Closes the day sheet: no selected day, also after rotation and process death. */
+    private fun clearSelection() {
+        selectedDate.value = null
+        savedState[KEY_DAY] = null
     }
 
     /** One-off replacement of the pattern slot. Same name as the feature ViewModel. */
@@ -194,6 +202,7 @@ class CalendarViewModel(
             is CalendarEvent.ShowMonth -> showMonth(event.month)
             CalendarEvent.Retry -> retry()
             CalendarEvent.DismissError -> dismissError()
+            CalendarEvent.ClearSelection -> clearSelection()
         }
     }
 
@@ -206,7 +215,7 @@ class CalendarViewModel(
     ): SelectedDayDetail {
         val overrideMap = overrides.associateBy { it.date }
         val exception = exceptions.firstOrNull { it.date == date }
-        val resolved = if (pattern == null || pattern.cycle.isEmpty()) {
+        val resolved = if (pattern == null || pattern.cycle.isEmpty() || date.isBefore(pattern.startDate)) {
             null
         } else {
             ShiftCalculator.shiftFor(date, pattern, overrideMap)
@@ -240,6 +249,10 @@ class CalendarViewModel(
         if (pattern == null || pattern.cycle.isEmpty()) return emptyList()
         return (1..month.lengthOfMonth()).map { day ->
             val date = month.atDay(day)
+            if (date.isBefore(pattern.startDate)) {
+                // The schedule has not started yet: no shift and no alarm before startDate.
+                return@map CalendarDayUi(date, null, null, null, null, hasOverride = false, alarmLabel = null)
+            }
             val resolved = ShiftCalculator.shiftFor(date, pattern, overrideMap)
             val alarm = alarmInstant(date, resolved.shift, exceptionMap[date])
             CalendarDayUi(

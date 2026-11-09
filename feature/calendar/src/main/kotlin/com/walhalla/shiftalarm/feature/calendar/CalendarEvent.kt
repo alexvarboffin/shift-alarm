@@ -14,6 +14,9 @@ import java.time.YearMonth
  * is an absolute local date-time. Null with [SetAlarmException.enabled] true keeps the shift lead.
  */
 sealed interface CalendarEvent {
+    /** Close the day sheet: the VM sets selected and selectedDay to null. */
+    data object ClearSelection : CalendarEvent
+
     data class SetOverride(
         val date: LocalDate,
         val shiftTypeId: ShiftTypeId?,

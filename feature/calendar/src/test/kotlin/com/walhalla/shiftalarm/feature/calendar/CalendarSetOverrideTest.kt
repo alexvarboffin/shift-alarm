@@ -122,11 +122,11 @@ class CalendarSetOverrideTest {
         try {
             viewModel.setOverride(date, BuiltinShifts.night)
             shadowOf(Looper.getMainLooper()).idle()
-            assertEquals(UiText.Res(R.string.calendar_error_save), viewModel.uiState.value.errorMessage)
+            assertEquals(UiText.Res(R.string.calendar_error_save), viewModel.uiState.value.commandError)
 
             viewModel.onEvent(CalendarEvent.DismissError)
             shadowOf(Looper.getMainLooper()).idle()
-            assertNull(viewModel.uiState.value.errorMessage)
+            assertNull(viewModel.uiState.value.commandError)
         } finally {
             job.cancel()
             scope.cancel()
@@ -147,16 +147,75 @@ class CalendarSetOverrideTest {
         val job = scope.launch { viewModel.uiState.collect {} }
         shadowOf(Looper.getMainLooper()).idle()
         try {
-            assertEquals(UiText.Res(R.string.calendar_error_load), viewModel.uiState.value.errorMessage)
+            assertEquals(UiText.Res(R.string.calendar_error_load), viewModel.uiState.value.loadError)
 
             viewModel.onEvent(CalendarEvent.DismissError)
             shadowOf(Looper.getMainLooper()).idle()
-            assertEquals(UiText.Res(R.string.calendar_error_load), viewModel.uiState.value.errorMessage)
+            assertEquals(UiText.Res(R.string.calendar_error_load), viewModel.uiState.value.loadError)
 
             viewModel.onEvent(CalendarEvent.Retry)
             shadowOf(Looper.getMainLooper()).idle()
-            assertNull(viewModel.uiState.value.errorMessage)
+            assertNull(viewModel.uiState.value.loadError)
             assertEquals(2, shifts.overrideReads)
+        } finally {
+            job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun daysBeforeStartDateHaveNoShiftAndNoAlarm() {
+        val start = LocalDate.of(2026, 11, 9)
+        val zone = ZoneId.of("Europe/Moscow")
+        val viewModel = CalendarViewModel(
+            RecordingShiftRepository(emptyList(), ShiftTemplates.twoTwo(start)),
+            EmptyAlarmRepository(),
+            RecordingRefresher(),
+            SavedStateHandle(),
+            Clock.fixed(start.atStartOfDay(zone).toInstant(), zone),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val job = scope.launch { viewModel.uiState.collect {} }
+        shadowOf(Looper.getMainLooper()).idle()
+        try {
+            val days = viewModel.uiState.value.days
+            val before = days.filter { it.date.isBefore(start) }
+            assertEquals(8, before.size)
+            assertTrue(before.all { it.shiftName == null && it.alarmLabel == null })
+            assertEquals("День", days.first { it.date == start }.shiftName)
+
+            viewModel.select(start.minusDays(1))
+            shadowOf(Looper.getMainLooper()).idle()
+            assertNull(viewModel.uiState.value.selectedDay?.shiftName)
+        } finally {
+            job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun clearSelectionClosesTheDaySheet() {
+        val start = LocalDate.of(2026, 11, 9)
+        val saved = SavedStateHandle()
+        val viewModel = CalendarViewModel(
+            RecordingShiftRepository(emptyList(), ShiftTemplates.twoTwo(start)),
+            EmptyAlarmRepository(),
+            RecordingRefresher(),
+            saved,
+            Clock.fixed(start.atStartOfDay(ZoneId.of("UTC")).toInstant(), ZoneId.of("UTC")),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val job = scope.launch { viewModel.uiState.collect {} }
+        try {
+            viewModel.select(start)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(start, viewModel.uiState.value.selectedDay?.date)
+
+            viewModel.onEvent(CalendarEvent.ClearSelection)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertNull(viewModel.uiState.value.selected)
+            assertNull(viewModel.uiState.value.selectedDay)
+            assertNull(saved.get<String>(KEY_DAY))
         } finally {
             job.cancel()
             scope.cancel()
