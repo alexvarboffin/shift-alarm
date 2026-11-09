@@ -58,7 +58,7 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.walhalla.shiftalarm.core.model.BuiltinShifts
 import com.walhalla.shiftalarm.core.model.PatternLimits
@@ -71,7 +71,7 @@ import com.walhalla.shiftalarm.core.ui.UiText
 import java.time.LocalDate
 
 @Composable
-fun ScheduleRoute(viewModel: ScheduleViewModel = hiltViewModel()) {
+fun ScheduleRoute(viewModel: ScheduleViewModel = koinViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     ScheduleScreen(
         state = state,
@@ -79,6 +79,7 @@ fun ScheduleRoute(viewModel: ScheduleViewModel = hiltViewModel()) {
         onActivate = viewModel::activate,
         onEditorEvent = viewModel::onEditorEvent,
         onRetry = { viewModel.onEvent(ScheduleEvent.Retry) },
+        onDismissError = { viewModel.onEvent(ScheduleEvent.DismissError) },
     )
 }
 
@@ -90,9 +91,9 @@ fun ScheduleScreen(
     onActivate: (String) -> Unit,
     onEditorEvent: (PatternEditorEvent) -> Unit,
     onRetry: () -> Unit = {},
+    onDismissError: () -> Unit = {},
 ) {
     val shown = rememberReachable(state)
-    val error = shown.errorMessage
     ShiftPane(modifier = Modifier.verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(8.dp))
         Text(
@@ -116,10 +117,18 @@ fun ScheduleScreen(
             TemplateButton(stringResource(R.string.schedule_template_five_two), PatternTemplate.FIVE_TWO, onApplyTemplate)
             TemplateButton(stringResource(R.string.schedule_template_custom), PatternTemplate.CUSTOM, onApplyTemplate)
         }
-        if (error != null) {
-            ErrorBanner(
-                message = error.resolve(LocalContext.current),
-                onRetry = onRetry,
+        val loadError = shown.loadError
+        val commandError = shown.commandError
+        when {
+            loadError != null -> ErrorBanner(
+                message = loadError.resolve(LocalContext.current),
+                actionLabel = stringResource(R.string.schedule_retry),
+                onAction = onRetry,
+            )
+            commandError != null -> ErrorBanner(
+                message = commandError.resolve(LocalContext.current),
+                actionLabel = stringResource(R.string.schedule_dismiss),
+                onAction = onDismissError,
             )
         }
         shown.editor?.let { editor ->
@@ -156,10 +165,10 @@ fun ScheduleScreen(
 @Composable
 private fun rememberReachable(state: ScheduleUiState): ScheduleUiState {
     var saved by remember { mutableStateOf<ScheduleUiState?>(null) }
-    if (!state.isLoading && state.errorMessage == null) saved = state
+    if (!state.isLoading && state.loadError == null) saved = state
     val previous = saved
-    return if (state.errorMessage != null && previous != null) {
-        previous.copy(errorMessage = state.errorMessage)
+    return if (state.loadError != null && previous != null) {
+        previous.copy(loadError = state.loadError, commandError = state.commandError)
     } else {
         state
     }
@@ -168,7 +177,8 @@ private fun rememberReachable(state: ScheduleUiState): ScheduleUiState {
 @Composable
 private fun ErrorBanner(
     message: String,
-    onRetry: () -> Unit,
+    actionLabel: String,
+    onAction: () -> Unit,
 ) {
     Card(
         modifier = Modifier
@@ -185,10 +195,10 @@ private fun ErrorBanner(
             )
             Spacer(Modifier.height(12.dp))
             Button(
-                onClick = onRetry,
+                onClick = onAction,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text(stringResource(R.string.schedule_retry))
+                Text(actionLabel)
             }
         }
     }
@@ -525,7 +535,7 @@ private fun ScheduleScreenEmptyDarkPreview() {
 private fun ScheduleScreenErrorPreview() {
     PreviewFrame(darkTheme = false) {
         ScheduleScreen(
-            ScheduleUiState(isLoading = false, errorMessage = UiText.Res(R.string.schedule_error_read)),
+            ScheduleUiState(isLoading = false, loadError = UiText.Res(R.string.schedule_error_read)),
             {},
             {},
             {},
@@ -538,7 +548,7 @@ private fun ScheduleScreenErrorPreview() {
 private fun ScheduleScreenErrorDarkPreview() {
     PreviewFrame(darkTheme = true) {
         ScheduleScreen(
-            ScheduleUiState(isLoading = false, errorMessage = UiText.Res(R.string.schedule_error_read)),
+            ScheduleUiState(isLoading = false, loadError = UiText.Res(R.string.schedule_error_read)),
             {},
             {},
             {},

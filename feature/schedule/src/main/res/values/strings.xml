@@ -23,6 +23,7 @@
     <string name="schedule_active">Активный</string>
     <string name="schedule_make_active">Сделать активным</string>
     <string name="schedule_retry">Повторить</string>
+    <string name="schedule_dismiss">Закрыть</string>
     <string name="schedule_editor_title">Свой график</string>
     <string name="schedule_editor_name">Название</string>
     <string name="schedule_editor_start">Дата старта</string>

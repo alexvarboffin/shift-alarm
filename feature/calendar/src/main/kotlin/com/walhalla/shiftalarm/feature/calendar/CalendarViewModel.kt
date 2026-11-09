@@ -20,12 +20,10 @@ import com.walhalla.shiftalarm.core.model.ShiftTypeId
 import com.walhalla.shiftalarm.core.model.ShiftTypeOption
 import com.walhalla.shiftalarm.core.model.keepAlive
 import com.walhalla.shiftalarm.core.ui.UiText
-import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Clock
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZonedDateTime
-import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,8 +36,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@HiltViewModel
-class CalendarViewModel @Inject constructor(
+class CalendarViewModel(
     private val shiftRepository: ShiftRepository,
     private val alarmRepository: AlarmRepository,
     private val widgetRefresher: HomeWidgetRefresher,
@@ -54,7 +51,7 @@ class CalendarViewModel @Inject constructor(
 
     val uiState: StateFlow<CalendarUiState> = combine(
         combine(month, selectedDate, commandError, readError) { visibleMonth, selected, command, read ->
-            Cursor(visibleMonth, selected, command ?: read)
+            Cursor(visibleMonth, selected, read, command)
         },
         reload.flatMapLatest { shiftRepository.observeActivePattern().keepAlive(null) { readError.value = loadError() } },
         reload.flatMapLatest { shiftRepository.observeOverrides().keepAlive(emptyList()) { readError.value = loadError() } },
@@ -73,7 +70,8 @@ class CalendarViewModel @Inject constructor(
                 detail(date, pattern, overrides, exceptions, options)
             },
             hasActivePattern = pattern != null && pattern.cycle.isNotEmpty(),
-            errorMessage = cursor.error,
+            loadError = cursor.loadError,
+            commandError = cursor.commandError,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -86,7 +84,8 @@ class CalendarViewModel @Inject constructor(
     private data class Cursor(
         val month: YearMonth,
         val selected: LocalDate?,
-        val error: UiText?,
+        val loadError: UiText?,
+        val commandError: UiText?,
     )
 
     fun showMonth(month: YearMonth) {
@@ -107,6 +106,12 @@ class CalendarViewModel @Inject constructor(
     fun select(date: LocalDate) {
         selectedDate.value = date
         savedState[KEY_DAY] = date.toString()
+    }
+
+    /** Closes the day sheet: no selected day, also after rotation and process death. */
+    private fun clearSelection() {
+        selectedDate.value = null
+        savedState[KEY_DAY] = null
     }
 
     /** One-off replacement of the pattern slot. Same name as the feature ViewModel. */
@@ -171,12 +176,12 @@ class CalendarViewModel @Inject constructor(
     }
 
     /** Hides a failed write. A load error stays until [retry]. */
-    fun dismissError() {
+    private fun dismissError() {
         commandError.value = null
     }
 
     /** "Retry": clears both errors and subscribes to the repositories again. */
-    fun retry() {
+    private fun retry() {
         commandError.value = null
         readError.value = null
         reload.value += 1
@@ -197,6 +202,7 @@ class CalendarViewModel @Inject constructor(
             is CalendarEvent.ShowMonth -> showMonth(event.month)
             CalendarEvent.Retry -> retry()
             CalendarEvent.DismissError -> dismissError()
+            CalendarEvent.ClearSelection -> clearSelection()
         }
     }
 
@@ -209,7 +215,7 @@ class CalendarViewModel @Inject constructor(
     ): SelectedDayDetail {
         val overrideMap = overrides.associateBy { it.date }
         val exception = exceptions.firstOrNull { it.date == date }
-        val resolved = if (pattern == null || pattern.cycle.isEmpty()) {
+        val resolved = if (pattern == null || pattern.cycle.isEmpty() || date.isBefore(pattern.startDate)) {
             null
         } else {
             ShiftCalculator.shiftFor(date, pattern, overrideMap)
@@ -243,6 +249,10 @@ class CalendarViewModel @Inject constructor(
         if (pattern == null || pattern.cycle.isEmpty()) return emptyList()
         return (1..month.lengthOfMonth()).map { day ->
             val date = month.atDay(day)
+            if (date.isBefore(pattern.startDate)) {
+                // The schedule has not started yet: no shift and no alarm before startDate.
+                return@map CalendarDayUi(date, null, null, null, null, hasOverride = false, alarmLabel = null)
+            }
             val resolved = ShiftCalculator.shiftFor(date, pattern, overrideMap)
             val alarm = alarmInstant(date, resolved.shift, exceptionMap[date])
             CalendarDayUi(

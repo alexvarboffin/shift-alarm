@@ -5,20 +5,19 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import dagger.hilt.android.AndroidEntryPoint
 import java.time.Clock
-import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
 /** Rearms the next alarm when exact-alarm permission is granted or revoked. Not exported. */
-@AndroidEntryPoint
-class ExactAlarmPermissionReceiver : BroadcastReceiver() {
-    @Inject lateinit var scheduler: AlarmScheduler
+class ExactAlarmPermissionReceiver : BroadcastReceiver(), KoinComponent {
+    private val scheduler: AlarmScheduler by inject()
 
-    @Inject lateinit var clock: Clock
+    private val clock: Clock by inject()
 
-    @Inject @ApplicationScope lateinit var scope: CoroutineScope
+    private val scope: CoroutineScope by inject(ApplicationScope)
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action

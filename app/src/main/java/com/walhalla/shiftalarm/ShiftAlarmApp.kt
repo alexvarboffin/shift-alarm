@@ -2,15 +2,21 @@ package com.walhalla.shiftalarm
 
 import android.app.Application
 import com.walhalla.shiftalarm.core.alarm.AlarmRescheduleWatcher
-import dagger.hilt.android.HiltAndroidApp
-import javax.inject.Inject
+import org.koin.android.ext.android.get
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.context.startKoin
 
-@HiltAndroidApp
+/**
+ * Koin starts here, not in an Activity: receivers, the ringing service and the widget
+ * run without UI, including before the first unlock (direct boot).
+ */
 class ShiftAlarmApp : Application() {
-    @Inject lateinit var alarmRescheduleWatcher: AlarmRescheduleWatcher
-
     override fun onCreate() {
         super.onCreate()
-        alarmRescheduleWatcher.start()
+        startKoin {
+            androidContext(this@ShiftAlarmApp)
+            modules(shiftAlarmModules)
+        }
+        get<AlarmRescheduleWatcher>().start()
     }
 }

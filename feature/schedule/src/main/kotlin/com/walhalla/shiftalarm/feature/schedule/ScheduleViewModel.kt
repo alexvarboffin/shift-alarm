@@ -12,12 +12,10 @@ import com.walhalla.shiftalarm.core.model.ShiftTypeCatalog
 import com.walhalla.shiftalarm.core.model.ShiftTypeId
 import com.walhalla.shiftalarm.core.model.keepAlive
 import com.walhalla.shiftalarm.core.ui.UiText
-import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Clock
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
-import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -32,7 +30,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@HiltViewModel
 class ScheduleViewModel internal constructor(
     private val repository: ShiftRepository,
     private val widgetRefresher: HomeWidgetRefresher,
@@ -45,7 +42,6 @@ class ScheduleViewModel internal constructor(
     private val commandError = MutableStateFlow<UiText?>(null)
     private val reload = MutableStateFlow(0)
 
-    @Inject
     constructor(
         repository: ShiftRepository,
         widgetRefresher: HomeWidgetRefresher,
@@ -57,8 +53,8 @@ class ScheduleViewModel internal constructor(
         reload.flatMapLatest { repository.observeActivePattern().keepAlive(null) { readError.value = readFailure() } },
         reload.flatMapLatest { repository.observeShiftTypes().keepAlive(emptyList()) { readError.value = readFailure() } },
         editor,
-        combine(commandError, readError) { command, read -> command ?: read },
-    ) { patterns, active, storedTypes, draft, error ->
+        combine(readError, commandError) { read, command -> read to command },
+    ) { patterns, active, storedTypes, draft, errors ->
         ScheduleUiState(
             isLoading = false,
             patterns = patterns.map { pattern ->
@@ -72,7 +68,8 @@ class ScheduleViewModel internal constructor(
             },
             activePatternId = active?.id,
             editor = draft?.toState(storedTypes),
-            errorMessage = error,
+            loadError = errors.first,
+            commandError = errors.second,
         )
     }.stateIn(
         scope = workScope,
@@ -90,7 +87,7 @@ class ScheduleViewModel internal constructor(
     }
 
     /** "Retry": clears both errors and subscribes to the repository again. */
-    fun retry() {
+    private fun retry() {
         commandError.value = null
         readError.value = null
         reload.update { it + 1 }

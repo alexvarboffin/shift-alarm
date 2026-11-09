@@ -4,11 +4,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import dagger.hilt.android.AndroidEntryPoint
 import java.time.Clock
-import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
 /**
  * Exported only so the system can deliver protected broadcasts.
@@ -19,13 +19,12 @@ import kotlinx.coroutines.launch
  * it to manifest receivers. [Intent.ACTION_BOOT_COMPLETED] arrives after unlock and
  * is the signal that credential storage is available again.
  */
-@AndroidEntryPoint
-class RescheduleReceiver : BroadcastReceiver() {
-    @Inject lateinit var scheduler: AlarmScheduler
+class RescheduleReceiver : BroadcastReceiver(), KoinComponent {
+    private val scheduler: AlarmScheduler by inject()
 
-    @Inject lateinit var clock: Clock
+    private val clock: Clock by inject()
 
-    @Inject @ApplicationScope lateinit var scope: CoroutineScope
+    private val scope: CoroutineScope by inject(ApplicationScope)
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action

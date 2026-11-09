@@ -46,5 +46,8 @@ data class CalendarUiState(
     val selected: CalendarDayUi? = null,
     val selectedDay: SelectedDayDetail? = null,
     val hasActivePattern: Boolean = false,
-    val errorMessage: UiText? = null,
+    /** Reading failed. Cleared only by [CalendarEvent.Retry]. */
+    val loadError: UiText? = null,
+    /** A write failed. Cleared by [CalendarEvent.DismissError] or [CalendarEvent.Retry]. */
+    val commandError: UiText? = null,
 )

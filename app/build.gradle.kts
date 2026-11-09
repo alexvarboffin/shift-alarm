@@ -1,8 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.hilt)
 }
 
 val keystorePath = System.getenv("SHIFT_KEYSTORE_PATH")
@@ -77,14 +75,15 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
+    implementation(libs.koin.compose.viewmodel)
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.hilt.android)
+    implementation(libs.koin.android)
     debugImplementation(libs.compose.ui.tooling)
-    ksp(libs.hilt.compiler)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     testImplementation(libs.junit)
+    testImplementation(libs.koin.test)
+    testImplementation(libs.koin.test.junit4)
     testImplementation(libs.robolectric)
     testImplementation(libs.kotlinx.coroutines.android)
 }

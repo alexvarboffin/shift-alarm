@@ -4,40 +4,41 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.walhalla.shiftalarm.R
 import com.walhalla.shiftalarm.core.alarm.AlarmScheduler
+import com.walhalla.shiftalarm.core.alarm.RingingChannels
 import com.walhalla.shiftalarm.core.model.AppPermission
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.UserSettings
 import com.walhalla.shiftalarm.core.model.keepAlive
 import com.walhalla.shiftalarm.core.ui.UiText
-import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Clock
-import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@HiltViewModel
 class SettingsViewModel internal constructor(
     private val settingsRepository: SettingsRepository,
     private val alarmScheduler: AlarmScheduler,
-    @ApplicationContext private val context: Context,
+    private val context: Context,
     private val clock: Clock,
     scopeOverride: CoroutineScope?,
+    private val sdkInt: Int = Build.VERSION.SDK_INT,
 ) : ViewModel() {
     private val workScope = scopeOverride ?: viewModelScope
     private val grants = MutableStateFlow(readGrants())
@@ -45,11 +46,10 @@ class SettingsViewModel internal constructor(
     private val readError = MutableStateFlow<UiText?>(null)
     private val reload = MutableStateFlow(0)
 
-    @Inject
     constructor(
         settingsRepository: SettingsRepository,
         alarmScheduler: AlarmScheduler,
-        @ApplicationContext context: Context,
+        context: Context,
         clock: Clock,
     ) : this(settingsRepository, alarmScheduler, context, clock, null)
 
@@ -57,9 +57,25 @@ class SettingsViewModel internal constructor(
         settingsRepository.settings.keepAlive(UserSettings()) { readError.value = readFailure() }
     }
 
+    /**
+     * The request counters the statuses are built from. Taken from the store on the first read,
+     * then only in [refreshPermissions], so the status changes together with the fresh grants
+     * and rationale, not halfway.
+     */
+    private val publishedAsked = MutableStateFlow<Map<AppPermission, Int>>(emptyMap())
+    @Volatile private var latestAsked: Map<AppPermission, Int> = emptyMap()
+    @Volatile private var askedLoaded = false
+    private var pendingMark: Job? = null
+
     private val requested = reload.flatMapLatest {
-        settingsRepository.requestedPermissions.keepAlive(emptySet()) { readError.value = readFailure() }
-    }
+        settingsRepository.permissionRequestCounts.keepAlive(emptyMap()) { readError.value = readFailure() }
+    }.onEach { stored ->
+        latestAsked = stored
+        if (!askedLoaded) {
+            askedLoaded = true
+            publishedAsked.value = stored
+        }
+    }.flatMapLatest { publishedAsked }
 
     val uiState: StateFlow<SettingsUiState> = combine(
         settings,
@@ -78,21 +94,32 @@ class SettingsViewModel internal constructor(
         if (error != null) {
             base
         } else {
+            val channelId = RingingChannels.RING
+            val channelOff = grant.ringChannelOff
+            val notifications = notificationStatus(
+                sdkInt = sdkInt,
+                enabled = grant.notificationsEnabled,
+                granted = grant.notifications,
+                requestCount = asked[AppPermission.NOTIFICATIONS] ?: 0,
+                rationale = rationale,
+                channelOff = channelOff,
+            )
             base.copy(
-                notificationStatus = permissionStatus(
-                    granted = grant.notifications,
-                    requested = AppPermission.NOTIFICATIONS in asked,
-                    rationale = rationale,
-                ),
-                exactAlarmStatus = permissionStatus(
+                notificationStatus = notifications,
+                blockedChannelId = channelId.takeIf {
+                    channelOff && grant.notificationsEnabled && notifications == PermissionStatus.DENIED_PERMANENTLY
+                },
+                exactAlarmStatus = specialAccessStatus(
+                    sdkInt = sdkInt,
+                    since = Build.VERSION_CODES.S,
                     granted = grant.exact,
-                    requested = AppPermission.EXACT_ALARM in asked,
-                    rationale = false,
+                    requestCount = asked[AppPermission.EXACT_ALARM] ?: 0,
                 ),
-                fullScreenIntentStatus = permissionStatus(
+                fullScreenIntentStatus = specialAccessStatus(
+                    sdkInt = sdkInt,
+                    since = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
                     granted = grant.fullScreen,
-                    requested = AppPermission.FULL_SCREEN_INTENT in asked,
-                    rationale = false,
+                    requestCount = asked[AppPermission.FULL_SCREEN_INTENT] ?: 0,
                 ),
             )
         }
@@ -111,6 +138,10 @@ class SettingsViewModel internal constructor(
     fun refreshPermissions(notificationRationale: Boolean? = null) {
         if (notificationRationale != null) this.notificationRationale.value = notificationRationale
         grants.update { readGrants() }
+        workScope.launch {
+            pendingMark?.join()
+            publishedAsked.value = latestAsked
+        }
         workScope.launch { alarmScheduler.scheduleNext(clock.millis()) }
     }
 
@@ -124,9 +155,10 @@ class SettingsViewModel internal constructor(
                 workScope.launch { settingsRepository.setUseDynamicColor(event.enabled) }
             }
             is SettingsEvent.PermissionRequested -> {
-                workScope.launch {
+                pendingMark = workScope.launch {
                     try {
                         settingsRepository.markRequested(event.permission)
+                        latestAsked = latestAsked + (event.permission to (latestAsked[event.permission] ?: 0) + 1)
                     } catch (error: CancellationException) {
                         throw error
                     } catch (_: Exception) {
@@ -151,13 +183,24 @@ class SettingsViewModel internal constructor(
     }
 
     private fun readGrants(): Grants = Grants(
+        notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled(),
         notifications = notificationsGranted(),
         exact = alarmScheduler.canScheduleExactAlarms(),
         fullScreen = alarmScheduler.canUseFullScreenIntent(),
+        ringChannelOff = ringChannelOff(),
     )
 
+    /**
+     * The ringing channel is switched off (importance NONE). The alarm still sounds, it plays
+     * on its own, but the screen with Stop and Snooze does not pop up. Channels exist from API 26.
+     */
+    private fun ringChannelOff(): Boolean = NotificationManagerCompat.from(context)
+        .getNotificationChannelCompat(RingingChannels.RING)
+        ?.importance == NotificationManagerCompat.IMPORTANCE_NONE
+
+    /** Runtime permission only from API 33; below it [notificationStatus] uses areNotificationsEnabled. */
     private fun notificationsGranted(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+        if (sdkInt < Build.VERSION_CODES.TIRAMISU) return false
         return ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.POST_NOTIFICATIONS,
@@ -165,8 +208,10 @@ class SettingsViewModel internal constructor(
     }
 
     private data class Grants(
+        val notificationsEnabled: Boolean,
         val notifications: Boolean,
         val exact: Boolean,
         val fullScreen: Boolean,
+        val ringChannelOff: Boolean,
     )
 }

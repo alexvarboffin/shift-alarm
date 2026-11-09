@@ -7,17 +7,13 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.walhalla.shiftalarm.core.model.AppPermission
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.UserSettings
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-@Singleton
-class DataStoreSettingsRepository @Inject constructor(
+class DataStoreSettingsRepository(
     private val dataStore: DataStore<Preferences>,
 ) : SettingsRepository {
     override val settings: Flow<UserSettings> = dataStore.data.map { prefs ->
@@ -55,13 +51,16 @@ class DataStoreSettingsRepository @Inject constructor(
         }
     }
 
-    override val requestedPermissions: Flow<Set<AppPermission>> = dataStore.data.map { prefs ->
-        prefs[Keys.REQUESTED_PERMISSIONS].orEmpty().toPermissions()
+    override val permissionRequestCounts: Flow<Map<AppPermission, Int>> = dataStore.data.map { prefs ->
+        AppPermission.entries.mapNotNull { permission ->
+            prefs[requestCountKey(permission)]?.takeIf { it > 0 }?.let { permission to it }
+        }.toMap()
     }
 
     override suspend fun markRequested(permission: AppPermission) {
         dataStore.edit { prefs ->
-            prefs[Keys.REQUESTED_PERMISSIONS] = prefs[Keys.REQUESTED_PERMISSIONS].orEmpty() + permission.name
+            val key = requestCountKey(permission)
+            prefs[key] = (prefs[key] ?: 0) + 1
         }
     }
 
@@ -71,10 +70,8 @@ class DataStoreSettingsRepository @Inject constructor(
         val DYNAMIC_COLOR = booleanPreferencesKey("use_dynamic_color")
         val SNOOZE_EPOCH = longPreferencesKey("pending_snooze_epoch_millis")
         val SNOOZE_NAME = stringPreferencesKey("pending_snooze_shift_name")
-        val REQUESTED_PERMISSIONS = stringSetPreferencesKey("requested_permissions")
     }
 }
 
-/** Unknown names (from a newer or older build) are skipped, not thrown. */
-internal fun Set<String>.toPermissions(): Set<AppPermission> =
-    mapNotNullTo(mutableSetOf()) { name -> AppPermission.entries.firstOrNull { it.name == name } }
+/** DataStore key `permission_requests_<NAME>` (int). */
+internal fun requestCountKey(permission: AppPermission) = intPreferencesKey("permission_requests_${permission.name}")

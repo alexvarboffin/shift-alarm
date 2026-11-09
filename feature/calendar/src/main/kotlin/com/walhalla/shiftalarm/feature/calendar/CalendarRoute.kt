@@ -48,7 +48,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,7 +69,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.walhalla.shiftalarm.core.model.BuiltinShifts
 import com.walhalla.shiftalarm.core.model.ShiftCalculator
@@ -90,7 +89,7 @@ import java.time.YearMonth
 @Composable
 fun CalendarRoute(
     onOpenSchedule: (() -> Unit)? = null,
-    viewModel: CalendarViewModel = hiltViewModel(),
+    viewModel: CalendarViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     CalendarScreen(
@@ -110,13 +109,8 @@ fun CalendarScreen(
     onOpenSchedule: (() -> Unit)? = null,
 ) {
     val shown = rememberReachable(state)
-    val error = shown.errorMessage
-    // Saved across rotation: a sheet the user closed stays closed until a day is tapped again.
-    var dismissedDate by rememberSaveable { mutableStateOf<LocalDate?>(null) }
-    val selectDay: (LocalDate) -> Unit = { date ->
-        dismissedDate = null
-        onSelect(date)
-    }
+    val loadError = shown.loadError
+    val commandError = shown.commandError
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             Modifier
@@ -131,10 +125,16 @@ fun CalendarScreen(
                     onPreviousMonth = { onEvent(CalendarEvent.ShowMonth(shown.month.minusMonths(1))) },
                     onNextMonth = { onEvent(CalendarEvent.ShowMonth(shown.month.plusMonths(1))) },
                 )
-                if (error != null) {
-                    ErrorBanner(
-                        message = error.resolve(LocalContext.current),
-                        onRetry = { onEvent(CalendarEvent.Retry) },
+                when {
+                    loadError != null -> ErrorBanner(
+                        message = loadError.resolve(LocalContext.current),
+                        actionLabel = stringResource(R.string.calendar_retry),
+                        onAction = { onEvent(CalendarEvent.Retry) },
+                    )
+                    commandError != null -> ErrorBanner(
+                        message = commandError.resolve(LocalContext.current),
+                        actionLabel = stringResource(R.string.calendar_dismiss),
+                        onAction = { onEvent(CalendarEvent.DismissError) },
                     )
                 }
                 when {
@@ -157,7 +157,7 @@ fun CalendarScreen(
                 MonthBody(
                     days = shown.days,
                     selected = shown.selected?.date,
-                    onSelect = selectDay,
+                    onSelect = onSelect,
                 )
                 shown.selected?.let { day ->
                     Column(Modifier.padding(horizontal = 16.dp)) {
@@ -170,8 +170,8 @@ fun CalendarScreen(
         }
     }
     val day = shown.selectedDay
-    if (day != null && day.date != dismissedDate) {
-        ModalBottomSheet(onDismissRequest = { dismissedDate = day.date }) {
+    if (day != null) {
+        ModalBottomSheet(onDismissRequest = { onEvent(CalendarEvent.ClearSelection) }) {
             DayEditor(day = day, onEvent = onEvent)
         }
     }
@@ -180,10 +180,10 @@ fun CalendarScreen(
 @Composable
 private fun rememberReachable(state: CalendarUiState): CalendarUiState {
     var saved by remember { mutableStateOf<CalendarUiState?>(null) }
-    if (!state.isLoading && state.errorMessage == null) saved = state
+    if (!state.isLoading && state.loadError == null) saved = state
     val previous = saved
-    return if (state.errorMessage != null && previous != null) {
-        previous.copy(errorMessage = state.errorMessage)
+    return if (state.loadError != null && previous != null) {
+        previous.copy(loadError = state.loadError, commandError = state.commandError)
     } else {
         state
     }
@@ -564,7 +564,8 @@ private fun LocalDate.formatDayMonth(): String {
 @Composable
 private fun ErrorBanner(
     message: String,
-    onRetry: () -> Unit,
+    actionLabel: String,
+    onAction: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -575,8 +576,8 @@ private fun ErrorBanner(
             Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(stringResource(R.string.calendar_retry))
+                Button(onClick = onAction, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(actionLabel)
                 }
             }
         }
@@ -677,7 +678,7 @@ private fun CalendarEmptyDarkPreview() {
 private fun CalendarErrorPreview() {
     PreviewFrame(false) {
         CalendarScreen(
-            sampleCalendarState().copy(errorMessage = UiText.Res(R.string.calendar_error_load)),
+            sampleCalendarState().copy(loadError = UiText.Res(R.string.calendar_error_load)),
             {},
             {},
         )
@@ -689,7 +690,7 @@ private fun CalendarErrorPreview() {
 private fun CalendarErrorDarkPreview() {
     PreviewFrame(true) {
         CalendarScreen(
-            sampleCalendarState().copy(errorMessage = UiText.Res(R.string.calendar_error_load)),
+            sampleCalendarState().copy(loadError = UiText.Res(R.string.calendar_error_load)),
             {},
             {},
         )

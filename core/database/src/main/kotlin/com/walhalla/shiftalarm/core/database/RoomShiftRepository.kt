@@ -7,14 +7,11 @@ import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftRepository
 import com.walhalla.shiftalarm.core.model.ShiftType
 import java.time.LocalDate
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
-@Singleton
-class RoomShiftRepository @Inject constructor(
+class RoomShiftRepository(
     private val dao: ShiftDao,
 ) : ShiftRepository, AlarmRepository {
     override fun observePatterns(): Flow<List<ShiftPattern>> = combine(

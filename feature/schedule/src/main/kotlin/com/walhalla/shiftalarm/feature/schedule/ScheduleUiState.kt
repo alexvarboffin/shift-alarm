@@ -17,7 +17,10 @@ data class ScheduleUiState(
     val patterns: List<PatternSummary> = emptyList(),
     val activePatternId: String? = null,
     val editor: PatternEditorUiState? = null,
-    val errorMessage: UiText? = null,
+    /** Reading failed. Cleared only by [ScheduleEvent.Retry]. */
+    val loadError: UiText? = null,
+    /** A write (save, activate) failed. Cleared by [ScheduleEvent.DismissError] or [ScheduleEvent.Retry]. */
+    val commandError: UiText? = null,
 )
 
 sealed interface ScheduleEvent {

@@ -60,19 +60,20 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.walhalla.shiftalarm.R
 import com.walhalla.shiftalarm.core.model.AppPermission
+import com.walhalla.shiftalarm.core.model.isSatisfied
 import com.walhalla.shiftalarm.core.ui.ShiftAlarmTheme
 import com.walhalla.shiftalarm.core.ui.ShiftPane
 import com.walhalla.shiftalarm.core.ui.UiText
 
 @Composable
-fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsRoute(viewModel: SettingsViewModel = koinViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = LocalActivity.current
@@ -101,7 +102,7 @@ fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
         onDynamicColor = { viewModel.onEvent(SettingsEvent.SetUseDynamicColor(it)) },
         onPermissionAction = { permission, status ->
             when (status) {
-                PermissionStatus.GRANTED -> Unit
+                PermissionStatus.GRANTED, PermissionStatus.NOT_REQUIRED -> Unit
                 PermissionStatus.NOT_ASKED, PermissionStatus.CAN_ASK_AGAIN -> {
                     if (permission != AppPermission.NOTIFICATIONS) {
                         viewModel.onEvent(SettingsEvent.PermissionRequested(permission))
@@ -110,7 +111,8 @@ fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
                         notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
                 }
-                PermissionStatus.DENIED_PERMANENTLY -> openPermissionSettings(context, permission)
+                PermissionStatus.DENIED_PERMANENTLY ->
+                    openPermissionSettings(context, permission, state.blockedChannelId)
             }
         },
         onRetry = { viewModel.onEvent(SettingsEvent.Retry) },
@@ -252,6 +254,7 @@ fun SettingsScreen(
 private fun statusLabel(status: PermissionStatus): String = stringResource(
     when (status) {
         PermissionStatus.GRANTED -> R.string.settings_permission_granted
+        PermissionStatus.NOT_REQUIRED -> R.string.settings_permission_not_required
         PermissionStatus.NOT_ASKED -> R.string.settings_permission_not_asked
         PermissionStatus.CAN_ASK_AGAIN -> R.string.settings_permission_denied
         PermissionStatus.DENIED_PERMANENTLY -> R.string.settings_permission_denied_permanently
@@ -332,7 +335,7 @@ private fun PermissionCard(
     status: PermissionStatus,
     onAction: () -> Unit,
 ) {
-    val granted = status == PermissionStatus.GRANTED
+    val satisfied = status.isSatisfied
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -345,11 +348,11 @@ private fun PermissionCard(
             Text(
                 text = statusLabel(status),
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (granted) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error,
+                color = if (satisfied) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error,
             )
             Spacer(Modifier.height(4.dp))
             Text(text = detail, style = MaterialTheme.typography.bodySmall)
-            if (!granted) {
+            if (!satisfied) {
                 Spacer(Modifier.height(12.dp))
                 val label = stringResource(
                     if (status == PermissionStatus.DENIED_PERMANENTLY) {
@@ -426,11 +429,19 @@ private fun requestPermission(
 }
 
 /** The dialog will not show again: open the matching system settings screen. */
-private fun openPermissionSettings(context: Context, permission: AppPermission) {
+private fun openPermissionSettings(context: Context, permission: AppPermission, channelId: String? = null) {
     when (permission) {
         AppPermission.NOTIFICATIONS -> context.startSettings(
-            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            if (channelId != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // A switched-off ringing channel: open that channel, not the app page.
+                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
+                }
+            } else {
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                }
             },
         )
         AppPermission.EXACT_ALARM, AppPermission.FULL_SCREEN_INTENT ->

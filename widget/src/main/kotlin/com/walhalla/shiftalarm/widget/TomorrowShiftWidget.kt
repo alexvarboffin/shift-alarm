@@ -32,24 +32,22 @@ import com.walhalla.shiftalarm.core.model.HomeWidgetRefresher
 import com.walhalla.shiftalarm.core.model.ShiftRepository
 import java.time.Clock
 import java.time.LocalDate
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.android.qualifiers.ApplicationContext
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
+import org.koin.dsl.bind
+import org.koin.dsl.module
 
-class TomorrowShiftWidget : GlanceAppWidget() {
+class TomorrowShiftWidget : GlanceAppWidget(), KoinComponent {
+    private val repository: ShiftRepository by inject()
+
+    private val clock: Clock by inject()
+
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val entryPoint = EntryPointAccessors.fromApplication(context, WidgetEntryPoint::class.java)
-        val repository = entryPoint.shiftRepository()
         val pattern = repository.observeActivePattern().first()
         val overrides = repository.observeOverrides().first().associateBy { it.date }
-        val label = tomorrowLabel(pattern, overrides, LocalDate.now(entryPoint.clock()))
+        val label = tomorrowLabel(pattern, overrides, LocalDate.now(clock))
         val openApp = actionStartActivity(openAppIntent(context))
         provideContent {
             TomorrowShiftWidgetContent(label = label, onClick = openApp)
@@ -114,26 +112,14 @@ internal fun openAppIntent(context: Context): Intent =
 
 private const val MAIN_ACTIVITY: String = "com.walhalla.shiftalarm.MainActivity"
 
-@EntryPoint
-@InstallIn(SingletonComponent::class)
-interface WidgetEntryPoint {
-    fun shiftRepository(): ShiftRepository
-
-    fun clock(): Clock
-}
-
-@Singleton
-class GlanceHomeWidgetRefresher @Inject constructor(
-    @ApplicationContext private val context: Context,
+class GlanceHomeWidgetRefresher(
+    private val context: Context,
 ) : HomeWidgetRefresher {
     override suspend fun refresh() {
         TomorrowShiftWidget().updateAll(context)
     }
 }
 
-@Module
-@InstallIn(SingletonComponent::class)
-abstract class WidgetBindings {
-    @Binds
-    abstract fun bindRefresher(impl: GlanceHomeWidgetRefresher): HomeWidgetRefresher
+val widgetModule = module {
+    single { GlanceHomeWidgetRefresher(androidContext()) } bind HomeWidgetRefresher::class
 }
