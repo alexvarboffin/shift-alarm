@@ -2,6 +2,7 @@ package com.walhalla.shiftalarm.feature.schedule
 
 import com.walhalla.shiftalarm.core.model.DayOverride
 import com.walhalla.shiftalarm.core.model.HomeWidgetRefresher
+import com.walhalla.shiftalarm.core.model.PatternTemplate
 import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftRepository
 import com.walhalla.shiftalarm.core.model.ShiftTemplates
@@ -110,6 +111,33 @@ class ScheduleViewModelTest {
     }
 
     @Test
+    fun failedWriteShowsCommandErrorAndDismissHidesIt() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val viewModel = ScheduleViewModel(
+            repository = FlakyShiftRepository(failWrites = true),
+            widgetRefresher = object : HomeWidgetRefresher {
+                override suspend fun refresh() = Unit
+            },
+            clock = Clock.fixed(LocalDate.of(2026, 4, 1).atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC),
+            scopeOverride = scope,
+        )
+        val job = scope.launch { viewModel.uiState.collect {} }
+        try {
+            viewModel.onEvent(ScheduleEvent.Retry)
+            assertNull(viewModel.uiState.value.errorMessage)
+
+            viewModel.applyTemplate(PatternTemplate.TWO_TWO)
+            assertEquals(UiText.Res(R.string.schedule_error_save), viewModel.uiState.value.errorMessage)
+
+            viewModel.onEvent(ScheduleEvent.DismissError)
+            assertNull(viewModel.uiState.value.errorMessage)
+        } finally {
+            job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun slotCountErrorsAreResources() {
         assertEquals(UiText.Res(R.string.schedule_error_slots_min), slotCountError(0))
         assertNull(slotCountError(1))
@@ -118,7 +146,7 @@ class ScheduleViewModelTest {
     }
 }
 
-private class FlakyShiftRepository : ShiftRepository {
+private class FlakyShiftRepository(private val failWrites: Boolean = false) : ShiftRepository {
     val patterns = MutableStateFlow<List<ShiftPattern>>(emptyList())
 
     override fun observePatterns(): Flow<List<ShiftPattern>> = patterns
@@ -140,7 +168,9 @@ private class FlakyShiftRepository : ShiftRepository {
 
     override suspend fun upsertPattern(pattern: ShiftPattern) = Unit
     override suspend fun setActivePattern(patternId: String?) = Unit
-    override suspend fun saveAndActivate(pattern: ShiftPattern) = Unit
+    override suspend fun saveAndActivate(pattern: ShiftPattern) {
+        if (failWrites) throw IllegalStateException("disk full")
+    }
     override suspend fun upsertOverride(override: DayOverride) = Unit
     override suspend fun deleteOverride(date: LocalDate) = Unit
 }

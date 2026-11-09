@@ -5,4 +5,5 @@
     <string name="schedule_error_slots_max">В цикле не больше %1$d слотов.</string>
     <string name="schedule_error_lead_range">Упреждение от %1$d до %2$d минут.</string>
     <string name="schedule_error_unknown_type">Неизвестный тип смены.</string>
+    <string name="schedule_error_save">Не удалось сохранить график</string>
 </resources>

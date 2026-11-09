@@ -2,4 +2,5 @@
 <resources>
     <string name="calendar_error_load">Не удалось собрать месяц</string>
     <string name="calendar_error_unknown_type">Неизвестный тип смены</string>
+    <string name="calendar_error_save">Не удалось сохранить изменения</string>
 </resources>
