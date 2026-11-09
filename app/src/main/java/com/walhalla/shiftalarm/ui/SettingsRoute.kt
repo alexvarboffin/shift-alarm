@@ -77,22 +77,13 @@ fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
     val context = LocalContext.current
     val activity = LocalActivity.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    // PermissionRequested goes out only after a real answer, judged by rationale before and after
-    // the request (no timing). Denied with no rationale before or after is ambiguous: the dialog
-    // was closed without an answer, or the system denied silently ("never ask again"). The first
-    // such result keeps NOT_ASKED; the second one is a real answer, so the card moves to settings.
-    var rationaleBefore by rememberSaveable { mutableStateOf(false) }
-    var ambiguousDenials by rememberSaveable { mutableIntStateOf(0) }
+    // Contract (ARCHITECTURE.md, PR #1): PermissionRequested goes out after the dialog answers,
+    // whatever the outcome; the VM counts requests and derives the status. No timing here.
     val notificationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        val rationaleAfter = notificationRationale(activity)
-        val ambiguous = !granted && rationaleAfter != true && !rationaleBefore
-        if (ambiguous) ambiguousDenials++ else ambiguousDenials = 0
-        if (!ambiguous || ambiguousDenials >= 2) {
-            viewModel.onEvent(SettingsEvent.PermissionRequested(AppPermission.NOTIFICATIONS))
-        }
-        viewModel.refreshPermissions(rationaleAfter)
+    ) {
+        viewModel.onEvent(SettingsEvent.PermissionRequested(AppPermission.NOTIFICATIONS))
+        viewModel.refreshPermissions(notificationRationale(activity))
     }
     DisposableEffect(lifecycleOwner, activity) {
         val observer = LifecycleEventObserver { _, event ->
@@ -116,7 +107,6 @@ fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
                         viewModel.onEvent(SettingsEvent.PermissionRequested(permission))
                     }
                     requestPermission(context, permission) {
-                        rationaleBefore = notificationRationale(activity) == true
                         notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
                 }
