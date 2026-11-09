@@ -11,6 +11,7 @@ data class PlannedAlarm(
 
 /**
  * The only next-alarm calculation. Scans about two cycle lengths from [now]'s date
+ * (or from the pattern start date, whichever is later)
  * and returns the earliest instant strictly after [now]. A shift that starts after
  * midnight can therefore ring on the previous evening.
  */
@@ -25,7 +26,9 @@ object NextAlarmPlanner {
         val horizonDays = (pattern.cycle.size * 2).coerceAtLeast(2)
         val zone = now.zone
         var best: PlannedAlarm? = null
-        var date = now.toLocalDate()
+        // Days before the pattern start have no shifts (contract line 78), so no alarm either.
+        // A previous-evening ring for the start day itself still counts: it belongs to startDate.
+        var date = maxOf(now.toLocalDate(), pattern.startDate)
         repeat(horizonDays) {
             val resolved = ShiftCalculator.shiftFor(date, pattern, overrides, zone)
             val trigger = upcoming(triggerAt(resolved, alarmExceptions[date], zone), now)
