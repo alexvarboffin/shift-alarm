@@ -212,6 +212,30 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun fallbackChannelOffIsDeniedAndPointsToIt() {
+        val app = RuntimeEnvironment.getApplication()
+        app.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(RingingChannels.FALLBACK, "fallback", NotificationManager.IMPORTANCE_NONE),
+        )
+        val viewModel = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = true), sdkInt = 28)
+        collect(viewModel)
+
+        assertEquals(PermissionStatus.DENIED_PERMANENTLY, viewModel.uiState.value.notificationStatus)
+        assertEquals(RingingChannels.FALLBACK, viewModel.uiState.value.blockedChannelId)
+    }
+
+    @Test
+    fun bothChannelsOffPointsToRingFirst() {
+        val manager = RuntimeEnvironment.getApplication().getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel(RingingChannels.RING, "ring", NotificationManager.IMPORTANCE_NONE))
+        manager.createNotificationChannel(NotificationChannel(RingingChannels.FALLBACK, "fallback", NotificationManager.IMPORTANCE_NONE))
+        val viewModel = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = false), sdkInt = 28)
+        collect(viewModel)
+
+        assertEquals(RingingChannels.RING, viewModel.uiState.value.blockedChannelId)
+    }
+
+    @Test
     fun channelRuleOnEveryApi() {
         assertEquals(
             PermissionStatus.DENIED_PERMANENTLY,

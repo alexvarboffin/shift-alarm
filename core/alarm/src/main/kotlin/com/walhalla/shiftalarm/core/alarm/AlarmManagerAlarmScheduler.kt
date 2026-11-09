@@ -150,12 +150,13 @@ class AlarmManagerAlarmScheduler(
         return context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
     }
 
-    private fun firePending(selected: ScheduledTrigger? = null): PendingIntent {
+    private fun firePending(selected: ScheduledTrigger? = null, fallback: Boolean = false): PendingIntent {
         val intent = Intent(context, AlarmFireReceiver::class.java).setAction(AlarmIntents.ACTION_FIRE)
         if (selected != null) {
             intent.putExtra(AlarmIntents.EXTRA_TRIGGER_AT_MILLIS, selected.epochMillis)
             intent.putExtra(AlarmIntents.EXTRA_SHIFT_NAME, selected.shiftName)
             intent.putExtra(AlarmIntents.EXTRA_SNOOZE, selected.snooze)
+            intent.putExtra(AlarmIntents.EXTRA_FALLBACK, fallback)
         }
         return PendingIntent.getBroadcast(
             context,
@@ -267,13 +268,12 @@ class AlarmManagerAlarmScheduler(
             notifications.cancel(AlarmIntents.NOTIFICATION_EXACT_DENIED)
             return
         }
-        val operation = firePending(selected)
         if (canScheduleExactAlarms()) {
             notifications.cancel(AlarmIntents.NOTIFICATION_EXACT_DENIED)
             try {
                 alarmManager.setAlarmClock(
                     AlarmManager.AlarmClockInfo(selected.epochMillis, showPending()),
-                    operation,
+                    firePending(selected),
                 )
                 return
             } catch (error: SecurityException) {
@@ -282,7 +282,7 @@ class AlarmManagerAlarmScheduler(
         } else {
             Log.w(TAG, "Exact alarms are off. Arming an inexact fallback for ${selected.epochMillis}.")
         }
-        scheduleInexactFallback(selected.epochMillis, operation)
+        scheduleInexactFallback(selected.epochMillis, firePending(selected, fallback = true))
         notifyExactAlarmsDenied(notifications)
     }
 

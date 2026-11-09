@@ -94,8 +94,13 @@ class SettingsViewModel internal constructor(
         if (error != null) {
             base
         } else {
-            val channelId = RingingChannels.RING
-            val channelOff = grant.ringChannelOff
+            // Contract: RING and FALLBACK on every API; the button opens the first channel that is off.
+            val channelId = when {
+                grant.ringChannelOff -> RingingChannels.RING
+                grant.fallbackChannelOff -> RingingChannels.FALLBACK
+                else -> null
+            }
+            val channelOff = channelId != null
             val notifications = notificationStatus(
                 sdkInt = sdkInt,
                 enabled = grant.notificationsEnabled,
@@ -106,7 +111,7 @@ class SettingsViewModel internal constructor(
             )
             base.copy(
                 notificationStatus = notifications,
-                blockedChannelId = channelId.takeIf {
+                blockedChannelId = channelId?.takeIf {
                     channelOff && grant.notificationsEnabled && notifications == PermissionStatus.DENIED_PERMANENTLY
                 },
                 exactAlarmStatus = specialAccessStatus(
@@ -187,15 +192,16 @@ class SettingsViewModel internal constructor(
         notifications = notificationsGranted(),
         exact = alarmScheduler.canScheduleExactAlarms(),
         fullScreen = alarmScheduler.canUseFullScreenIntent(),
-        ringChannelOff = ringChannelOff(),
+        ringChannelOff = channelOff(RingingChannels.RING),
+        fallbackChannelOff = channelOff(RingingChannels.FALLBACK),
     )
 
     /**
      * The ringing channel is switched off (importance NONE). The alarm still sounds, it plays
      * on its own, but the screen with Stop and Snooze does not pop up. Channels exist from API 26.
      */
-    private fun ringChannelOff(): Boolean = NotificationManagerCompat.from(context)
-        .getNotificationChannelCompat(RingingChannels.RING)
+    private fun channelOff(id: String): Boolean = NotificationManagerCompat.from(context)
+        .getNotificationChannelCompat(id)
         ?.importance == NotificationManagerCompat.IMPORTANCE_NONE
 
     /** Runtime permission only from API 33; below it [notificationStatus] uses areNotificationsEnabled. */
@@ -213,5 +219,6 @@ class SettingsViewModel internal constructor(
         val exact: Boolean,
         val fullScreen: Boolean,
         val ringChannelOff: Boolean,
+        val fallbackChannelOff: Boolean,
     )
 }

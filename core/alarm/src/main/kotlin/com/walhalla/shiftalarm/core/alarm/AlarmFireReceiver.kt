@@ -18,19 +18,35 @@ class AlarmFireReceiver : BroadcastReceiver(), KoinComponent {
 
     private val scope: CoroutineScope by inject(ApplicationScope)
 
+    private val ringingLaunchIntent: RingingLaunchIntent by inject()
+
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != AlarmIntents.ACTION_FIRE) {
             Log.w(TAG, "Ignored unexpected action ${intent.action}")
             return
         }
-        val ringing = Intent(context, RingingService::class.java).apply {
-            action = RingingService.ACTION_FIRE
-            putExtras(intent)
-        }
-        try {
-            ContextCompat.startForegroundService(context, ringing)
-        } catch (error: RuntimeException) {
-            Log.e(TAG, "Ringing service did not start", error)
+        if (intent.getBooleanExtra(AlarmIntents.EXTRA_FALLBACK, false)) {
+            // Inexact alarm: no background FGS start. The full-screen notification opens
+            // RingingActivity, and the visible activity starts RingingService.
+            FallbackRingNotification.show(
+                context = context,
+                launch = ringingLaunchIntent.create(
+                    shiftName = intent.getStringExtra(AlarmIntents.EXTRA_SHIFT_NAME).orEmpty(),
+                    triggerAtEpochMillis = intent.getLongExtra(AlarmIntents.EXTRA_TRIGGER_AT_MILLIS, clock.millis()),
+                    snooze = intent.getBooleanExtra(AlarmIntents.EXTRA_SNOOZE, false),
+                ).putExtra(AlarmIntents.EXTRA_FALLBACK, true),
+                shiftName = intent.getStringExtra(AlarmIntents.EXTRA_SHIFT_NAME).orEmpty().ifBlank { "Смена" },
+            )
+        } else {
+            val ringing = Intent(context, RingingService::class.java).apply {
+                action = RingingService.ACTION_FIRE
+                putExtras(intent)
+            }
+            try {
+                ContextCompat.startForegroundService(context, ringing)
+            } catch (error: RuntimeException) {
+                Log.e(TAG, "Ringing service did not start", error)
+            }
         }
         val now = clock.millis()
         val firedAt = intent.getLongExtra(AlarmIntents.EXTRA_TRIGGER_AT_MILLIS, now)

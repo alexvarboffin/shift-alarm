@@ -77,6 +77,7 @@ class RingingService : Service(), KoinComponent {
         val triggerAt = intent?.getLongExtra(AlarmIntents.EXTRA_TRIGGER_AT_MILLIS, now) ?: now
         val snooze = intent?.getBooleanExtra(AlarmIntents.EXTRA_SNOOZE, false) ?: false
         ringingShiftName = shiftName
+        FallbackRingNotification.cancel(this)
         acquireWakeLock()
         enterForeground(buildNotification(shiftName, triggerAt, snooze))
         RingingState.set(true)
@@ -204,6 +205,9 @@ class RingingService : Service(), KoinComponent {
 /** Ringing notification channel. Settings reads it to see if the user switched it off. */
 object RingingChannels {
     const val RING: String = "shift_alarm_ring"
+
+    /** Sounding channel of the inexact fallback, used only when exact alarms are off. */
+    const val FALLBACK: String = "shift_alarm_ring_fallback"
 
     /** Channels of earlier builds, deleted when the service starts. */
     internal val LEGACY: List<String> = listOf("shift_alarm_ring_vibrate", "shift_alarm_ring_quiet")
