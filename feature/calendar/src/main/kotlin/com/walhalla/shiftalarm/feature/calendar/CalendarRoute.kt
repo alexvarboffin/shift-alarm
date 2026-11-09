@@ -48,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,9 +111,11 @@ fun CalendarScreen(
 ) {
     val shown = rememberReachable(state)
     val error = shown.errorMessage
-    var showEditor by remember { mutableStateOf(false) }
-    LaunchedEffect(shown.selectedDay?.date) {
-        showEditor = shown.selectedDay != null
+    // Saved across rotation: a sheet the user closed stays closed until a day is tapped again.
+    var dismissedDate by rememberSaveable { mutableStateOf<LocalDate?>(null) }
+    val selectDay: (LocalDate) -> Unit = { date ->
+        dismissedDate = null
+        onSelect(date)
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
@@ -154,7 +157,7 @@ fun CalendarScreen(
                 MonthBody(
                     days = shown.days,
                     selected = shown.selected?.date,
-                    onSelect = onSelect,
+                    onSelect = selectDay,
                 )
                 shown.selected?.let { day ->
                     Column(Modifier.padding(horizontal = 16.dp)) {
@@ -167,8 +170,8 @@ fun CalendarScreen(
         }
     }
     val day = shown.selectedDay
-    if (showEditor && day != null) {
-        ModalBottomSheet(onDismissRequest = { showEditor = false }) {
+    if (day != null && day.date != dismissedDate) {
+        ModalBottomSheet(onDismissRequest = { dismissedDate = day.date }) {
             DayEditor(day = day, onEvent = onEvent)
         }
     }

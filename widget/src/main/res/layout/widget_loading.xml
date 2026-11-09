@@ -10,7 +10,7 @@
     android:paddingEnd="16dp"
     android:paddingBottom="12dp">
 
-    <View
+    <FrameLayout
         android:layout_width="4dp"
         android:layout_height="32dp"
         android:background="@color/widget_accent"

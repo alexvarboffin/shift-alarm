@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -75,10 +76,24 @@ fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
     val context = LocalContext.current
     val activity = LocalActivity.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    // Status before the dialog and launch time. PermissionRequested goes out only after a real
+    // answer: closing the dialog without answering must not turn NOT_ASKED into DENIED_PERMANENTLY.
+    var pendingNotification by remember { mutableStateOf<Pair<PermissionStatus, Long>?>(null) }
     val notificationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) {
-        viewModel.refreshPermissions(notificationRationale(activity))
+    ) { granted ->
+        val rationale = notificationRationale(activity)
+        val pending = pendingNotification
+        pendingNotification = null
+        // The system answers without a dialog in a few ms when the user already chose "never ask".
+        val answeredBySystem = pending != null &&
+            SystemClock.elapsedRealtime() - pending.second < SYSTEM_DENY_WINDOW_MS
+        val answered = granted || rationale == true || answeredBySystem ||
+            pending?.first == PermissionStatus.CAN_ASK_AGAIN
+        if (answered) {
+            viewModel.onEvent(SettingsEvent.PermissionRequested(AppPermission.NOTIFICATIONS))
+        }
+        viewModel.refreshPermissions(rationale)
     }
     DisposableEffect(lifecycleOwner, activity) {
         val observer = LifecycleEventObserver { _, event ->
@@ -98,8 +113,11 @@ fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
             when (status) {
                 PermissionStatus.GRANTED -> Unit
                 PermissionStatus.NOT_ASKED, PermissionStatus.CAN_ASK_AGAIN -> {
-                    viewModel.onEvent(SettingsEvent.PermissionRequested(permission))
+                    if (permission != AppPermission.NOTIFICATIONS) {
+                        viewModel.onEvent(SettingsEvent.PermissionRequested(permission))
+                    }
                     requestPermission(context, permission) {
+                        pendingNotification = status to SystemClock.elapsedRealtime()
                         notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
                 }
@@ -109,6 +127,8 @@ fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
         onRetry = { viewModel.onEvent(SettingsEvent.Retry) },
     )
 }
+
+private const val SYSTEM_DENY_WINDOW_MS = 400L
 
 /** Stateless: every label and button below comes from [SettingsUiState.status]. */
 @OptIn(ExperimentalLayoutApi::class)
