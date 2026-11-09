@@ -49,17 +49,25 @@ flowchart TD
 ## Правила слоёв
 
 - `:core:model` не импортирует Android. Там домен, `ShiftCalculator`, `NextAlarmPlanner`, интерфейсы репозиториев и `HomeWidgetRefresher`.
-- `:core:database` и `:core:datastore` реализуют репозитории. Наружу их классы не торчат: фичи получают интерфейсы через Hilt.
+- `:core:database` и `:core:datastore` реализуют репозитории. Наружу их классы не торчат: фичи получают интерфейсы через Koin.
 - `:core:alarm` владеет `AlarmScheduler`, `AlarmManager` и foreground-сервисом звонка. Он не знает про Compose и не зависит от фич. Экран звонка открывается через `RingingLaunchIntent`, реализацию которого даёт `:feature:alarm`.
 - Фича не зависит от другой фичи. Навигацию между ними собирает `:app`.
 - Виджет не зависит от фич. Данные он берёт из `ShiftRepository` и считает завтра через `ShiftCalculator`.
 - Состояние экрана — `ViewModel` и `StateFlow<UiState>`. Компоненты не ходят в Room.
 
-## Почему Hilt, а не Koin
+## DI: Koin
 
-> Раздел описывает код на базе T10b/T10f. T10g ([PR #2](https://github.com/alexvarboffin/shift-alarm/pull/2)) мёржится сразу следом и заменяет Hilt на Koin вместе с этим разделом и строками каталога версий.
+> Реализует T10g ([PR #2](https://github.com/alexvarboffin/shift-alarm/pull/2)), мёржится сразу после этого PR. До него код на этой базе ещё на Hilt.
 
-Hilt проверяет граф при компиляции: пропущенный биндинг `ShiftRepository` или `RingingLaunchIntent` ломает сборку, а не первый запуск. Для этого скелета это важнее, чем простота Koin. Плюс штатные `@HiltViewModel` и `@AndroidEntryPoint` на `Activity`, `Service` и `BroadcastReceiver`, без своего service locator. Koin был бы уместен, если бы граф был маленьким и ошибки в рантайме были приемлемы. Здесь модулей десять, и контракт между ними должен рваться на KSP.
+Решение пользователя (T10g): DI только Koin 4.1.0, Hilt и kapt не используются. KSP остаётся только в `:core:database` для Room.
+
+- У каждого Gradle-модуля свой Koin-модуль: `databaseModule`, `dataStoreModule`, `alarmModule`, `alarmFeatureModule`, `scheduleModule`, `calendarModule`, `widgetModule`. `:app` собирает их в `shiftAlarmModules` (`AppModule.kt`).
+- `startKoin` вызывается в `ShiftAlarmApp.onCreate`, поэтому граф есть у ресиверов, `RingingService`, виджета и direct boot.
+- ViewModel регистрируются через `viewModel { }` из `org.koin.core.module.dsl`. В Compose их берут через `koinViewModel()`, в Activity через `by viewModel()`.
+- Ресиверы, `RingingService` и Glance-виджет реализуют `KoinComponent` и берут зависимости через `by inject()`. Конструкторы классов без DI-аннотаций.
+- Скоуп приложения: `single(ApplicationScope) { CoroutineScope(SupervisorJob() + Dispatchers.Default) }`, где `ApplicationScope = named("ApplicationScope")`.
+- Koin проверяет граф в рантайме, а не при компиляции. Поэтому `KoinGraphTest` в `:app` вызывает `verify(extraTypes = listOf(Context::class, File::class))`. Новый биндинг без зелёного `KoinGraphTest` не мёржится.
+- Реализацию интерфейса регистрируем по конкретному классу: `single { Impl(get()) } bind Api::class`. Запись `single<Api> { Impl(get()) }` запрещена: `verify()` видит только тип `Api` без конструктора и пропущенную зависимость `Impl` не ловит.
 
 ## Домен и шаблоны
 
@@ -67,7 +75,7 @@ Hilt проверяет граф при компиляции: пропущенн
 
 Встроенные пары: день `#A16207` / `#F4B000`, ночь `#1E3A8A` / `#3B82F6`, отсыпной `#0F766E` / `#0D9488`, сутки `#312E81` / `#6366F1`. Выходной в обеих темах `#6B7280`. Свой тип, у которого был один `colorArgb`, после миграции получает этот цвет и в светлой, и в тёмной теме.
 
-`ShiftPattern` — упорядоченный цикл и `startDate` (этот день соответствует индексу 0). Даты до старта тоже попадают в цикл через `floorMod`.
+`ShiftPattern` — упорядоченный цикл и `startDate` (этот день соответствует индексу 0). Дни раньше `startDate` смены не имеют: календарь показывает их пустыми, `NextAlarmPlanner` будильник на них не ставит. Индекс дня от старта считается через `floorMod` только для дат не раньше `startDate`. Реализует T12 (`buildDays`), ещё не сделано.
 
 | Шаблон | Цикл, один слот = один календарный день |
 | --- | --- |
@@ -289,6 +297,7 @@ sealed interface RingingUiState {
 1. `AlarmRescheduleWatcher` — единственный владелец пересчёта после записи. Его стартует `ShiftAlarmApp`. Он смотрит потоки паттернов, активного графика, подмен, исключений и настроек. `saveAndActivate`, `setOverride`, `clearOverride`, `setAlarmException` и `clearAlarmException` меняют эти потоки, watcher вызывает `scheduleNext(now)`, а тот заново пишет device-protected снимок. Экраны сами `scheduleNext` не зовут. Те же пять системных action по-прежнему приходят в `RescheduleReceiver`, и он тоже вызывает `scheduleNext(now)`.
 2. `scheduleNext(now)` читает активный паттерн, подмены дней, исключения будильника и маркер snooze. Если snooze строго позже `now` — ставится он. Иначе `NextAlarmPlanner.earliest` ищет ближайший момент. Нет кандидата — pending intent отменяется. В AlarmManager всегда один будильник.
 3. Если `canScheduleExactAlarms()` истинно, ставится `setAlarmClock`. Если ложно или `setAlarmClock` бросает `SecurityException`, ставится неточный запасной: сначала `setAndAllowWhileIdle`, при ошибке `setWindow` на 15 минут. Рядом показывается heads-up, что точные будильники выключены. Тап открывает приложение явным intent, а системный экран точных будильников открывается уже из настроек обычным `startActivity`. Когда точные снова доступны, это уведомление снимается.
+   Запасной путь (реально бывает только на API 31–32, когда пользователь снял `SCHEDULE_EXACT_ALARM`; на 33+ `USE_EXACT_ALARM` выдан при установке). Неточный будильник несёт extra `fallback=true`. На нём `AlarmFireReceiver` не запускает FGS из фона: исключения на старт FGS у неточного будильника нет, был бы `ForegroundServiceStartNotAllowedException`. Вместо этого он показывает уведомление категории `alarm` в отдельном канале `RingingChannels.FALLBACK` = `shift_alarm_ring_fallback` (`IMPORTANCE_HIGH`, звук будильника по умолчанию с `USAGE_ALARM`, вибрация), с full-screen intent на `RingingActivity` и кнопками «Стоп» и «Отложить». На заблокированном экране открывается `RingingActivity`. На разблокированном приходит heads-up со звуком канала, тап открывает `RingingActivity`. `RingingActivity`, уже видимая, запускает `RingingService`, а тот снимает fallback-уведомление и играет звук сам. Реализует T12, ещё не сделано.
 4. Срабатывание приходит в `AlarmFireReceiver` (явный `PendingIntent`, `FLAG_IMMUTABLE`, `exported=false`). Он поднимает `RingingService` (`startForeground` с типом `mediaPlayback`) и сразу вызывает `scheduleNext(now = время этого срабатывания)`, чтобы следующий слот встал, даже если пользователь не нажмёт «Стоп». Момент строго после `now`, поэтому тот же звонок не ставится ещё раз.
 5. Сервис берёт `PARTIAL_WAKE_LOCK` (потолок 10 минут). Звук и вибрацию даёт сам сервис, а не канал: `MediaPlayer` с `AudioAttributes.USAGE_ALARM` (звук будильника по умолчанию, громкость `STREAM_ALARM`) и `Vibrator` с `USAGE_ALARM`, если вибрация включена. Поэтому будильник звонит, даже когда канал или уведомления выключены. Канал один, `RingingChannels.RING` = `shift_alarm_ring`, `IMPORTANCE_HIGH`, без звука и вибрации, чтобы звук не дублировался. Старые каналы `shift_alarm_ring_vibrate` и `shift_alarm_ring_quiet` удаляются при старте сервиса (`deleteNotificationChannel`). Выключенный канал всё равно даёт `DENIED_PERMANENTLY` в настройках: без него нет экрана и кнопок.
    Если канал выключен, звонок всё равно можно остановить. `RingingController` отдаёт `isRinging: StateFlow<Boolean>`. `MainActivity` при старте и на ON_RESUME проверяет его и, пока идёт звонок, сразу открывает `RingingActivity` со «Стоп» и «Отложить». Сам сервис из фона `startActivity` не вызывает, это запрещено ограничениями фоновых запусков. Если никто не нажал «Стоп», звонок сам останавливается через 10 минут: таймер в сервисе совпадает с потолком wake lock. Это равно `dismiss()`, следующий слот уже стоит. Если `canUseFullScreenIntent()` истинно (ниже API 34 это всегда так), уведомление категории `alarm` открывает `RingingActivity` через full-screen intent. Если на API 34+ разрешение снято, full-screen intent не ставится: то же уведомление уходит как heads-up (`PRIORITY_MAX`, канал `IMPORTANCE_HIGH`).
@@ -322,7 +331,7 @@ Glance App Widget, подпись в списке виджетов: «завтр
 
 ## Каталог версий
 
-Новее стабильные артефакты, у которых `minCompileSdk` в `aar-metadata.properties` равен 37, сюда не встают: у приложения `compileSdk` 36. Это Compose BOM `2026.08.00+` (Compose 1.12), `core-ktx` 1.19.x, lifecycle compose 2.11, navigation-compose 2.10.x, `hilt-lifecycle-viewmodel-compose` 1.4.0. Glance 1.3 ещё alpha.
+Новее стабильные артефакты, у которых `minCompileSdk` в `aar-metadata.properties` равен 37, сюда не встают: у приложения `compileSdk` 36. Это Compose BOM `2026.08.00+` (Compose 1.12), `core-ktx` 1.19.x, lifecycle compose 2.11, navigation-compose 2.10.x. Glance 1.3 ещё alpha.
 
 | Компонент | Версия | Откуда |
 | --- | --- | --- |
@@ -332,8 +341,7 @@ Glance App Widget, подпись в списке виджетов: «завтр
 | KSP | 2.3.13 | [symbol-processing-api](https://repo1.maven.org/maven2/com/google/devtools/ksp/symbol-processing-api/maven-metadata.xml). На Google Maven лежит устаревшая ветка 1.5.30. Документация KSP ставит 2.3.x рядом с Kotlin 2.4 |
 | Compose BOM | 2026.06.01 | [compose-bom](https://dl.google.com/dl/android/maven2/androidx/compose/compose-bom/maven-metadata.xml). UI 1.11.4, `minCompileSdk` 35. Material3 в этом BOM — 1.4.0, `minCompileSdk` 35 |
 | Room + компилятор | 2.8.5 | [room-runtime](https://dl.google.com/dl/android/maven2/androidx/room/room-runtime/maven-metadata.xml) |
-| Hilt | 2.60.1 | [hilt-android на Maven Central](https://repo1.maven.org/maven2/com/google/dagger/hilt-android/maven-metadata.xml). На Google Maven артефакта нет |
-| hilt ViewModel Compose | 1.3.0 | [hilt-lifecycle-viewmodel-compose](https://dl.google.com/dl/android/maven2/androidx/hilt/hilt-lifecycle-viewmodel-compose/maven-metadata.xml), `minCompileSdk` 35 |
+| Koin | 4.1.0 | [koin-android на Maven Central](https://repo1.maven.org/maven2/io/insert-koin/koin-android/maven-metadata.xml). Артефакты: `koin-android`, `koin-compose-viewmodel`, `koin-androidx-workmanager`, `koin-test`, `koin-test-junit4`. Реализует T10g |
 | DataStore | 1.3.0 | [datastore-preferences](https://dl.google.com/dl/android/maven2/androidx/datastore/datastore-preferences/maven-metadata.xml) |
 | Glance | 1.2.0 | [glance-appwidget](https://dl.google.com/dl/android/maven2/androidx/glance/glance-appwidget/maven-metadata.xml), последний stable |
 | Glance preview | 1.2.0, только debug | [glance-preview](https://dl.google.com/dl/android/maven2/androidx/glance/glance-preview/maven-metadata.xml) (`minCompileSdk` 34) и [glance-appwidget-preview](https://dl.google.com/dl/android/maven2/androidx/glance/glance-appwidget-preview/maven-metadata.xml) (`minCompileSdk` 35). 1.3.0 ещё alpha |
