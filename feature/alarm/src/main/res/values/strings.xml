@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="ringing_error_empty">Нет данных будильника</string>
+    <string name="ringing_icon_cd">Будильник смены</string>
+    <string name="ringing_shift_label">Смена</string>
+    <string name="ringing_fallback_name">Будильник</string>
+    <string name="ringing_time_unknown">--:--</string>
+    <string name="ringing_time_cd">Время сигнала %1$s</string>
+    <string name="ringing_loading">Загрузка будильника</string>
+    <string name="ringing_dismiss">Закрыть</string>
+    <string name="ringing_stop">Стоп</string>
+    <string name="ringing_snooze">Отложить на %1$d мин</string>
 </resources>

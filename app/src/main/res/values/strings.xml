@@ -3,4 +3,30 @@
     <string name="app_name">Будильник смен</string>
     <string name="settings_error_read">Не удалось прочитать настройки</string>
     <string name="settings_error_write">Не удалось сохранить настройки</string>
+    <string name="nav_schedule">График</string>
+    <string name="nav_calendar">Календарь</string>
+    <string name="nav_settings">Настройки</string>
+
+    <string name="settings_loading">Загрузка настроек</string>
+    <string name="settings_snooze_title">Отложить на</string>
+    <string name="settings_snooze_hint">Кнопка «Отложить» на будильнике использует выбранное время.</string>
+    <string name="settings_snooze_minutes">%1$d мин</string>
+    <string name="settings_vibration">Вибрация</string>
+    <string name="settings_vibration_detail">Вибрация выбирает канал уведомления: с вибрацией или без. Звук — системный будильник.</string>
+    <string name="settings_dynamic_color">Цвета системы</string>
+    <string name="settings_dynamic_color_detail">Брать палитру с обоев. Доступно с Android 12.</string>
+    <string name="settings_permissions_title">Разрешения</string>
+    <string name="settings_permission_granted">Разрешено</string>
+    <string name="settings_permission_denied">Не разрешено</string>
+    <string name="settings_notifications">Уведомления</string>
+    <string name="settings_notifications_detail">Нужны, чтобы будильник и кнопки «Стоп» и «Отложить» появились на экране.</string>
+    <string name="settings_permission_allow">Разрешить</string>
+    <string name="settings_permission_not_asked">Ещё не запрошено</string>
+    <string name="settings_permission_denied_permanently">Запрещено. Включите в настройках системы.</string>
+    <string name="settings_exact_alarm">Точный будильник</string>
+    <string name="settings_exact_alarm_detail">Без него смена не прозвенит вовремя.</string>
+    <string name="settings_fullscreen">Показ на заблокированном экране</string>
+    <string name="settings_fullscreen_detail">Нужен, чтобы экран звонка открылся сам.</string>
+    <string name="settings_open_settings">Открыть настройки</string>
+    <string name="settings_retry">Повторить</string>
 </resources>
