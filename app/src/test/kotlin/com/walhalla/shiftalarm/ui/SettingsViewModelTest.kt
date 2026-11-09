@@ -212,20 +212,27 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun fallbackChannelOffCountsOnlyWithoutExactAlarms() {
+    fun fallbackChannelOffIsDeniedAndPointsToIt() {
         val app = RuntimeEnvironment.getApplication()
         app.getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(RingingChannels.FALLBACK, "fallback", NotificationManager.IMPORTANCE_NONE),
         )
-        val withoutExact = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = false), sdkInt = 28)
-        collect(withoutExact)
-        assertEquals(PermissionStatus.DENIED_PERMANENTLY, withoutExact.uiState.value.notificationStatus)
-        assertEquals(RingingChannels.FALLBACK, withoutExact.uiState.value.blockedChannelId)
+        val viewModel = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = true), sdkInt = 28)
+        collect(viewModel)
 
-        val withExact = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = true), sdkInt = 28)
-        collect(withExact)
-        assertEquals(PermissionStatus.NOT_REQUIRED, withExact.uiState.value.notificationStatus)
-        assertNull(withExact.uiState.value.blockedChannelId)
+        assertEquals(PermissionStatus.DENIED_PERMANENTLY, viewModel.uiState.value.notificationStatus)
+        assertEquals(RingingChannels.FALLBACK, viewModel.uiState.value.blockedChannelId)
+    }
+
+    @Test
+    fun bothChannelsOffPointsToRingFirst() {
+        val manager = RuntimeEnvironment.getApplication().getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel(RingingChannels.RING, "ring", NotificationManager.IMPORTANCE_NONE))
+        manager.createNotificationChannel(NotificationChannel(RingingChannels.FALLBACK, "fallback", NotificationManager.IMPORTANCE_NONE))
+        val viewModel = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = false), sdkInt = 28)
+        collect(viewModel)
+
+        assertEquals(RingingChannels.RING, viewModel.uiState.value.blockedChannelId)
     }
 
     @Test

@@ -94,10 +94,10 @@ class SettingsViewModel internal constructor(
         if (error != null) {
             base
         } else {
-            // Without exact alarms the inexact fallback sounds from its own channel: check it too.
+            // Contract: RING and FALLBACK on every API; the button opens the first channel that is off.
             val channelId = when {
                 grant.ringChannelOff -> RingingChannels.RING
-                !grant.exact && grant.fallbackChannelOff -> RingingChannels.FALLBACK
+                grant.fallbackChannelOff -> RingingChannels.FALLBACK
                 else -> null
             }
             val channelOff = channelId != null
