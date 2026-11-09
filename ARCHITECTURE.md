@@ -215,12 +215,12 @@ data class SettingsUiState(
     val fullScreenIntentStatus: PermissionStatus = PermissionStatus.NOT_ASKED,
     val errorMessage: UiText? = null,
 ) {
-    val exactAlarm: Boolean get() = exactAlarmStatus == PermissionStatus.GRANTED
-    val fullScreenIntent: Boolean get() = fullScreenIntentStatus == PermissionStatus.GRANTED
+    val exactAlarm: Boolean get() = exactAlarmStatus.isSatisfied
+    val fullScreenIntent: Boolean get() = fullScreenIntentStatus.isSatisfied
     fun status(permission: AppPermission): PermissionStatus
 }
 
-enum class PermissionStatus { GRANTED, NOT_ASKED, CAN_ASK_AGAIN, DENIED_PERMANENTLY }
+enum class PermissionStatus { GRANTED, NOT_REQUIRED, NOT_ASKED, CAN_ASK_AGAIN, DENIED_PERMANENTLY }
 
 sealed interface SettingsEvent {
     data class SelectSnooze(val minutes: Int) : SettingsEvent
@@ -241,6 +241,8 @@ sealed interface RingingUiState {
 ```
 
 Разрешения. `enum class AppPermission { NOTIFICATIONS, EXACT_ALARM, FULL_SCREEN_INTENT }` лежит в `:core:model`. `SettingsRepository` хранит, какие разрешения уже запрашивались: `requestedPermissions: Flow<Set<AppPermission>>` и `suspend fun markRequested(permission)`, ключ DataStore `requested_permissions`. ViewModel вызывает `markRequested` на `SettingsEvent.PermissionRequested` до открытия системного диалога и считает `PermissionStatus` из факта выдачи, этого флага и `shouldShowRequestPermissionRationale`. UI свой флаг не хранит.
+
+`NOT_REQUIRED`: на этой версии Android разрешение не запрашивается во время работы. Уведомления ниже API 33, `EXACT_ALARM` ниже API 31, `FULL_SCREEN_INTENT` ниже API 34. ViewModel отдаёт `NOT_REQUIRED` и не подменяет его на `GRANTED`. `val PermissionStatus.isSatisfied get() = this == GRANTED || this == NOT_REQUIRED`. UI показывает такую карточку как «не требуется», без кнопки, и `PermissionRequested` для неё не шлёт.
 
 Тексты ошибок во всех UiState идут как `UiText`. Фиксированные тексты задаются через `UiText.Res`, а `UiText.Raw` нужен только для строк, пришедших извне.
 
@@ -375,3 +377,7 @@ Glance App Widget, подпись в списке виджетов: «завтр
 - `TomorrowShiftWidgetReceiver` — `exported=true`. Иначе лаунчер не показывает его в пикере. Фильтр только `android.appwidget.action.APPWIDGET_UPDATE`. Нажатие открывает `MainActivity` явным `PendingIntent` с `FLAG_IMMUTABLE`.
 - `AlarmFireReceiver`, `RingingService` и `RingingActivity` — `exported=false`. `setAlarmClock` и иконка будильника — явные `PendingIntent` с `FLAG_IMMUTABLE`. Чужой action у `AlarmFireReceiver` игнорируется.
 - `RescheduleReceiver` — `exported=true` только с пятью action: `LOCKED_BOOT_COMPLETED`, `BOOT_COMPLETED`, `TIME_SET`, `TIMEZONE_CHANGED`, `MY_PACKAGE_REPLACED`. `onReceive` игнорирует всё остальное. `USER_UNLOCKED` нет: manifest-receiver его не получает, после разблокировки приходит `BOOT_COMPLETED`.
+
+## Известные ограничения
+
+- После восстановления из бэкапа (новый телефон, переустановка) будильник ставится только при первом запуске приложения: `AlarmRescheduleWatcher` в `ShiftAlarmApp.onCreate` вызывает `scheduleNext()`. Android не шлёт приложению событие о restore, `BOOT_COMPLETED` к этому моменту уже прошёл. Свой `BackupAgent` с `onRestoreFinished()` в MVP не делаем (решение Tech Lead).
