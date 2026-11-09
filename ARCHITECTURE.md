@@ -227,7 +227,7 @@ enum class PermissionStatus { GRANTED, NOT_REQUIRED, NOT_ASKED, CAN_ASK_AGAIN, D
 sealed interface SettingsEvent {
     data class SelectSnooze(val minutes: Int) : SettingsEvent
     data class SetUseDynamicColor(val enabled: Boolean) : SettingsEvent
-    data class PermissionRequested(val permission: AppPermission) : SettingsEvent // до системного диалога
+    data class PermissionRequested(val permission: AppPermission) : SettingsEvent // после ответа системного диалога, при любом исходе
     data object Retry : SettingsEvent
 }
 
@@ -247,15 +247,24 @@ sealed interface RingingUiState {
 }
 ```
 
-Разрешения. `enum class AppPermission { NOTIFICATIONS, EXACT_ALARM, FULL_SCREEN_INTENT }` лежит в `:core:model`. `SettingsRepository` хранит, какие разрешения уже запрашивались: `requestedPermissions: Flow<Set<AppPermission>>` и `suspend fun markRequested(permission)`, ключ DataStore `requested_permissions`. ViewModel вызывает `markRequested` на `SettingsEvent.PermissionRequested` до открытия системного диалога и считает `PermissionStatus` из факта выдачи, этого флага и `shouldShowRequestPermissionRationale`. UI свой флаг не хранит.
+Разрешения. `enum class AppPermission { NOTIFICATIONS, EXACT_ALARM, FULL_SCREEN_INTENT }` лежит в `:core:model`. `SettingsRepository` хранит, сколько раз показывался системный диалог: `permissionRequestCounts: Flow<Map<AppPermission, Int>>` и `suspend fun markRequested(permission)`, который увеличивает счётчик. Ключи DataStore `permission_requests_<NAME>` (int). UI шлёт `SettingsEvent.PermissionRequested` после ответа диалога при любом исходе (разрешил, отказал, закрыл), затем вызывает `refreshPermissions(rationale)`. Замеров времени нет. UI свой флаг не хранит.
+
+Статус runtime-разрешения считает ViewModel, одно правило и после диалога, и на ON_RESUME:
+1. Выдано, значит `GRANTED`.
+2. `shouldShowRequestPermissionRationale` = true, значит `CAN_ASK_AGAIN`.
+3. Счётчик 0, значит `NOT_ASKED`.
+4. Счётчик 1, значит `CAN_ASK_AGAIN`: кнопка «Разрешить» ещё раз вызывает диалог.
+5. Счётчик 2 и больше, значит `DENIED_PERMANENTLY`: кнопка открывает системные настройки.
+
+Если система отказала без диалога (`user-fixed`), первый тап даёт `CAN_ASK_AGAIN`, второй `DENIED_PERMANENTLY`. Пользователь не застревает. Цена: если дважды закрыть диалог кнопкой BACK, статус станет `DENIED_PERMANENTLY`, и выдать разрешение можно будет через настройки. Это допустимо.
 
 `NOT_REQUIRED`: на этой версии Android разрешение не запрашивается во время работы. Уведомления ниже API 33, `EXACT_ALARM` ниже API 31, `FULL_SCREEN_INTENT` ниже API 34. ViewModel отдаёт `NOT_REQUIRED` и не подменяет его на `GRANTED`. `val PermissionStatus.isSatisfied get() = this == GRANTED || this == NOT_REQUIRED`. UI показывает такую карточку как «не требуется», без кнопки, и `PermissionRequested` для неё не шлёт.
 
-Уведомления проверяются глубже runtime-разрешения, на всех API. Если разрешение выдано (или `NOT_REQUIRED` ниже API 33), но `NotificationManagerCompat.areNotificationsEnabled()` = false, или выключен текущий канал звонка (`getNotificationChannelCompat(id)?.importance == IMPORTANCE_NONE`, где `id` — `shift_alarm_ring_vibrate` или `shift_alarm_ring_quiet` по настройке вибрации; `:core:alarm` отдаёт его через публичный `RingingChannels.idFor(vibration)`, константы перестают быть private), статус `DENIED_PERMANENTLY`. Кнопка открывает `Settings.ACTION_APP_NOTIFICATION_SETTINGS`, а при выключенном канале `ACTION_CHANNEL_NOTIFICATION_SETTINGS` с id канала. Статус пересчитывается на ON_RESUME. Для `FULL_SCREEN_INTENT` ниже API 34 остаётся просто `NOT_REQUIRED`.
+Уведомления проверяются глубже runtime-разрешения, на всех API. Если разрешение выдано (или `NOT_REQUIRED` ниже API 33), но `NotificationManagerCompat.areNotificationsEnabled()` = false, или выключен канал звонка (`getNotificationChannelCompat(RingingChannels.RING)?.importance == IMPORTANCE_NONE`, публичная константа в `:core:alarm`), статус `DENIED_PERMANENTLY`. Кнопка открывает `Settings.ACTION_APP_NOTIFICATION_SETTINGS`, а при выключенном канале `ACTION_CHANNEL_NOTIFICATION_SETTINGS` с id канала. Статус пересчитывается на ON_RESUME. Для `FULL_SCREEN_INTENT` ниже API 34 остаётся просто `NOT_REQUIRED`.
 
 Ошибки Schedule и Calendar. `loadError` показывается как состояние экрана с кнопкой «Повторить» (`Retry`), закрыть его нельзя. `commandError` показывается баннером с «Повторить» и «Закрыть» (`DismissError`). Если есть оба, на экране `loadError`. UI не зовёт `viewModel.retry()` напрямую, только `onEvent(...Retry)`.
 
-Код этого контракта (`AppPermission`, `PermissionStatus`, `requestedPermissions`, `loadError`/`commandError`) реализует T12, [PR #4](https://github.com/alexvarboffin/shift-alarm/pull/4). До его мёржа `main` отстаёт от этого раздела, сверять документ с кодом нужно по ветке T12.
+Код этого контракта (`AppPermission`, `PermissionStatus`, `permissionRequestCounts`, `loadError`/`commandError`) реализует T12, [PR #4](https://github.com/alexvarboffin/shift-alarm/pull/4). До его мёржа `main` отстаёт от этого раздела, сверять документ с кодом нужно по ветке T12.
 
 Тексты ошибок во всех UiState идут как `UiText`. Фиксированные тексты задаются через `UiText.Res`, а `UiText.Raw` нужен только для строк, пришедших извне.
 
@@ -279,7 +288,7 @@ sealed interface RingingUiState {
 2. `scheduleNext(now)` читает активный паттерн, подмены дней, исключения будильника и маркер snooze. Если snooze строго позже `now` — ставится он. Иначе `NextAlarmPlanner.earliest` ищет ближайший момент. Нет кандидата — pending intent отменяется. В AlarmManager всегда один будильник.
 3. Если `canScheduleExactAlarms()` истинно, ставится `setAlarmClock`. Если ложно или `setAlarmClock` бросает `SecurityException`, ставится неточный запасной: сначала `setAndAllowWhileIdle`, при ошибке `setWindow` на 15 минут. Рядом показывается heads-up, что точные будильники выключены. Тап открывает приложение явным intent, а системный экран точных будильников открывается уже из настроек обычным `startActivity`. Когда точные снова доступны, это уведомление снимается.
 4. Срабатывание приходит в `AlarmFireReceiver` (явный `PendingIntent`, `FLAG_IMMUTABLE`, `exported=false`). Он поднимает `RingingService` (`startForeground` с типом `specialUse`) и сразу вызывает `scheduleNext(now = время этого срабатывания)`, чтобы следующий слот встал, даже если пользователь не нажмёт «Стоп». Момент строго после `now`, поэтому тот же звонок не ставится ещё раз.
-5. Сервис берёт `PARTIAL_WAKE_LOCK` (потолок 10 минут) и системный звук будильника. Если `canUseFullScreenIntent()` истинно (ниже API 34 это всегда так), уведомление категории `alarm` открывает `RingingActivity` через full-screen intent. Если на API 34+ разрешение снято, full-screen intent не ставится: то же уведомление уходит как heads-up (`PRIORITY_MAX`, канал `IMPORTANCE_HIGH`). Вибрация выбирает один из двух каналов.
+5. Сервис берёт `PARTIAL_WAKE_LOCK` (потолок 10 минут). Звук и вибрацию даёт сам сервис, а не канал: `MediaPlayer` с `AudioAttributes.USAGE_ALARM` (звук будильника по умолчанию, громкость `STREAM_ALARM`) и `Vibrator` с `USAGE_ALARM`, если вибрация включена. Поэтому будильник звонит, даже когда канал или уведомления выключены. Канал один, `RingingChannels.RING` = `shift_alarm_ring`, `IMPORTANCE_HIGH`, без звука и вибрации, чтобы звук не дублировался. Старые каналы `shift_alarm_ring_vibrate` и `shift_alarm_ring_quiet` удаляются при старте сервиса (`deleteNotificationChannel`). Выключенный канал всё равно даёт `DENIED_PERMANENTLY` в настройках: без него нет экрана и кнопок. Если `canUseFullScreenIntent()` истинно (ниже API 34 это всегда так), уведомление категории `alarm` открывает `RingingActivity` через full-screen intent. Если на API 34+ разрешение снято, full-screen intent не ставится: то же уведомление уходит как heads-up (`PRIORITY_MAX`, канал `IMPORTANCE_HIGH`).
 6. «Стоп» вызывает `dismiss()`: маркер snooze стирается, снова считается следующая смена. «Отложить» пишет snooze в DataStore и заменяет единственный pending alarm. И активность, и кнопки уведомления идут в один `RingingService`.
 
 `LOCKED_BOOT_COMPLETED` приходит до разблокировки, и будильник ставится из device-protected снимка. `BOOT_COMPLETED` приходит уже после разблокировки: credential-хранилище доступно, снимок при необходимости переносится в Room. `USER_UNLOCKED` манифест не слушает: платформа не доставляет его manifest-receiver.
