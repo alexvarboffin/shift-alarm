@@ -136,7 +136,7 @@ private class FakeAlarmRepository : AlarmRepository {
 }
 
 private class FakeSettingsRepository : SettingsRepository {
-    override val requestedPermissions: Flow<Set<AppPermission>> = MutableStateFlow(emptySet())
+    override val permissionRequestCounts: Flow<Map<AppPermission, Int>> = MutableStateFlow(emptyMap())
 
     override suspend fun markRequested(permission: AppPermission) = Unit
 

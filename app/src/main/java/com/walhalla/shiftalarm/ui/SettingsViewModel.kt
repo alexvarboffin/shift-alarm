@@ -58,17 +58,17 @@ class SettingsViewModel internal constructor(
     }
 
     /**
-     * The "already asked" set the statuses are built from. Taken from the store on the first read,
-     * then only in [refreshPermissions], so a mark written while the system dialog is open does not
-     * flip the status to DENIED_PERMANENTLY before the user answers.
+     * The request counters the statuses are built from. Taken from the store on the first read,
+     * then only in [refreshPermissions], so the status changes together with the fresh grants
+     * and rationale, not halfway.
      */
-    private val publishedAsked = MutableStateFlow<Set<AppPermission>>(emptySet())
-    @Volatile private var latestAsked: Set<AppPermission> = emptySet()
+    private val publishedAsked = MutableStateFlow<Map<AppPermission, Int>>(emptyMap())
+    @Volatile private var latestAsked: Map<AppPermission, Int> = emptyMap()
     @Volatile private var askedLoaded = false
     private var pendingMark: Job? = null
 
     private val requested = reload.flatMapLatest {
-        settingsRepository.requestedPermissions.keepAlive(emptySet()) { readError.value = readFailure() }
+        settingsRepository.permissionRequestCounts.keepAlive(emptyMap()) { readError.value = readFailure() }
     }.onEach { stored ->
         latestAsked = stored
         if (!askedLoaded) {
@@ -94,13 +94,13 @@ class SettingsViewModel internal constructor(
         if (error != null) {
             base
         } else {
-            val channelId = RingingChannels.idFor(prefs.vibrationEnabled)
-            val channelOff = channelId in grant.blockedChannels
+            val channelId = RingingChannels.RING
+            val channelOff = grant.ringChannelOff
             val notifications = notificationStatus(
                 sdkInt = sdkInt,
                 enabled = grant.notificationsEnabled,
                 granted = grant.notifications,
-                requested = AppPermission.NOTIFICATIONS in asked,
+                requestCount = asked[AppPermission.NOTIFICATIONS] ?: 0,
                 rationale = rationale,
                 channelOff = channelOff,
             )
@@ -113,13 +113,13 @@ class SettingsViewModel internal constructor(
                     sdkInt = sdkInt,
                     since = Build.VERSION_CODES.S,
                     granted = grant.exact,
-                    requested = AppPermission.EXACT_ALARM in asked,
+                    requestCount = asked[AppPermission.EXACT_ALARM] ?: 0,
                 ),
                 fullScreenIntentStatus = specialAccessStatus(
                     sdkInt = sdkInt,
                     since = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
                     granted = grant.fullScreen,
-                    requested = AppPermission.FULL_SCREEN_INTENT in asked,
+                    requestCount = asked[AppPermission.FULL_SCREEN_INTENT] ?: 0,
                 ),
             )
         }
@@ -158,7 +158,7 @@ class SettingsViewModel internal constructor(
                 pendingMark = workScope.launch {
                     try {
                         settingsRepository.markRequested(event.permission)
-                        latestAsked = latestAsked + event.permission
+                        latestAsked = latestAsked + (event.permission to (latestAsked[event.permission] ?: 0) + 1)
                     } catch (error: CancellationException) {
                         throw error
                     } catch (_: Exception) {
@@ -187,16 +187,16 @@ class SettingsViewModel internal constructor(
         notifications = notificationsGranted(),
         exact = alarmScheduler.canScheduleExactAlarms(),
         fullScreen = alarmScheduler.canUseFullScreenIntent(),
-        blockedChannels = blockedRingingChannels(),
+        ringChannelOff = ringChannelOff(),
     )
 
-    /** Ringing channels the user switched off (importance NONE). Channels exist from API 26. */
-    private fun blockedRingingChannels(): Set<String> {
-        val manager = NotificationManagerCompat.from(context)
-        return RingingChannels.all.filterTo(mutableSetOf()) { id ->
-            manager.getNotificationChannelCompat(id)?.importance == NotificationManagerCompat.IMPORTANCE_NONE
-        }
-    }
+    /**
+     * The ringing channel is switched off (importance NONE). The alarm still sounds, it plays
+     * on its own, but the screen with Stop and Snooze does not pop up. Channels exist from API 26.
+     */
+    private fun ringChannelOff(): Boolean = NotificationManagerCompat.from(context)
+        .getNotificationChannelCompat(RingingChannels.RING)
+        ?.importance == NotificationManagerCompat.IMPORTANCE_NONE
 
     /** Runtime permission only from API 33; below it [notificationStatus] uses areNotificationsEnabled. */
     private fun notificationsGranted(): Boolean {
@@ -212,6 +212,6 @@ class SettingsViewModel internal constructor(
         val notifications: Boolean,
         val exact: Boolean,
         val fullScreen: Boolean,
-        val blockedChannels: Set<String>,
+        val ringChannelOff: Boolean,
     )
 }

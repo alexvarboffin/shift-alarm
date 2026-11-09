@@ -52,10 +52,10 @@ interface SettingsRepository {
 
     suspend fun setPendingSnooze(epochMillis: Long?, shiftName: String)
 
-    /** Permissions the app has already asked for at least once. Survives process death. */
-    val requestedPermissions: Flow<Set<AppPermission>>
+    /** How many times the system dialog or settings screen was shown per permission. Missing means 0. */
+    val permissionRequestCounts: Flow<Map<AppPermission, Int>>
 
-    /** Call before showing the system dialog or settings screen for [permission]. */
+    /** Adds one to the counter. Call after the dialog answered, whatever the outcome. */
     suspend fun markRequested(permission: AppPermission)
 }
 

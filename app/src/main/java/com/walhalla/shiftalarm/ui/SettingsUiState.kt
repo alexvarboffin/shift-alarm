@@ -15,15 +15,16 @@ enum class NotificationPermission {
 typealias PermissionStatus = com.walhalla.shiftalarm.core.model.PermissionStatus
 
 /**
- * [rationale] is `shouldShowRequestPermissionRationale` from the Activity.
- * Exact alarm and full-screen intent have no runtime dialog, so they pass false:
- * once asked and still missing, they go to system settings.
+ * [rationale] is `shouldShowRequestPermissionRationale` from the Activity; special access passes false.
+ * [requestCount] is how many times the dialog or settings screen was shown. One refusal still lets
+ * the user ask again; from the second one the button goes to system settings.
  */
-fun permissionStatus(granted: Boolean, requested: Boolean, rationale: Boolean): PermissionStatus = when {
+fun permissionStatus(granted: Boolean, requestCount: Int, rationale: Boolean): PermissionStatus = when {
     granted -> PermissionStatus.GRANTED
     rationale -> PermissionStatus.CAN_ASK_AGAIN
-    requested -> PermissionStatus.DENIED_PERMANENTLY
-    else -> PermissionStatus.NOT_ASKED
+    requestCount <= 0 -> PermissionStatus.NOT_ASKED
+    requestCount == 1 -> PermissionStatus.CAN_ASK_AGAIN
+    else -> PermissionStatus.DENIED_PERMANENTLY
 }
 
 /** Nothing is granted until a real check says so. */
@@ -38,7 +39,7 @@ data class SettingsUiState(
     val fullScreenIntentStatus: PermissionStatus = PermissionStatus.NOT_ASKED,
     val errorMessage: UiText? = null,
     /**
-     * Set when notifications are DENIED_PERMANENTLY because the current ringing channel is off.
+     * Set when notifications are DENIED_PERMANENTLY because the ringing channel is off.
      * The button then opens ACTION_CHANNEL_NOTIFICATION_SETTINGS for this id, otherwise app notification settings.
      */
     val blockedChannelId: String? = null,
@@ -74,22 +75,22 @@ fun notificationStatus(
     sdkInt: Int,
     enabled: Boolean,
     granted: Boolean,
-    requested: Boolean,
+    requestCount: Int,
     rationale: Boolean,
     channelOff: Boolean = false,
 ): PermissionStatus {
     val base = when {
         sdkInt < 33 -> if (enabled) PermissionStatus.NOT_REQUIRED else PermissionStatus.DENIED_PERMANENTLY
-        else -> permissionStatus(granted, requested, rationale)
+        else -> permissionStatus(granted, requestCount, rationale)
     }
     // Granted is not enough: app notifications or the ringing channel can be off in system settings.
     return if (base.isSatisfied && (!enabled || channelOff)) PermissionStatus.DENIED_PERMANENTLY else base
 }
 
 /** Special access (exact alarm from API 31, full-screen intent from API 34): no dialog, only settings. */
-fun specialAccessStatus(sdkInt: Int, since: Int, granted: Boolean, requested: Boolean): PermissionStatus = when {
+fun specialAccessStatus(sdkInt: Int, since: Int, granted: Boolean, requestCount: Int): PermissionStatus = when {
     sdkInt < since -> PermissionStatus.NOT_REQUIRED
-    else -> permissionStatus(granted, requested, rationale = false)
+    else -> permissionStatus(granted, requestCount, rationale = false)
 }
 
 sealed interface SettingsEvent {
@@ -97,7 +98,7 @@ sealed interface SettingsEvent {
 
     data class SetUseDynamicColor(val enabled: Boolean) : SettingsEvent
 
-    /** Send right before the system dialog or settings screen opens. */
+    /** Send after the system dialog answered (any outcome), then call refreshPermissions. */
     data class PermissionRequested(val permission: AppPermission) : SettingsEvent
 
     /** Clears the error and reads settings again. */

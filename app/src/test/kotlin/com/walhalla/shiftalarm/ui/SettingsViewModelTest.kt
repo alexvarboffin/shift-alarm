@@ -143,17 +143,17 @@ class SettingsViewModelTest {
 
     @Test
     fun statusRulesByApiLevel() {
-        assertEquals(PermissionStatus.NOT_REQUIRED, notificationStatus(32, enabled = true, granted = false, requested = false, rationale = false))
-        assertEquals(PermissionStatus.DENIED_PERMANENTLY, notificationStatus(32, enabled = false, granted = false, requested = false, rationale = false))
-        assertEquals(PermissionStatus.NOT_ASKED, notificationStatus(33, enabled = true, granted = false, requested = false, rationale = false))
-        assertEquals(PermissionStatus.NOT_REQUIRED, specialAccessStatus(30, since = 31, granted = false, requested = true))
-        assertEquals(PermissionStatus.DENIED_PERMANENTLY, specialAccessStatus(31, since = 31, granted = false, requested = true))
-        assertEquals(PermissionStatus.NOT_REQUIRED, specialAccessStatus(33, since = 34, granted = false, requested = false))
-        assertEquals(PermissionStatus.GRANTED, specialAccessStatus(34, since = 34, granted = true, requested = false))
+        assertEquals(PermissionStatus.NOT_REQUIRED, notificationStatus(32, enabled = true, granted = false, requestCount = 0, rationale = false))
+        assertEquals(PermissionStatus.DENIED_PERMANENTLY, notificationStatus(32, enabled = false, granted = false, requestCount = 0, rationale = false))
+        assertEquals(PermissionStatus.NOT_ASKED, notificationStatus(33, enabled = true, granted = false, requestCount = 0, rationale = false))
+        assertEquals(PermissionStatus.NOT_REQUIRED, specialAccessStatus(30, since = 31, granted = false, requestCount = 2))
+        assertEquals(PermissionStatus.DENIED_PERMANENTLY, specialAccessStatus(31, since = 31, granted = false, requestCount = 2))
+        assertEquals(PermissionStatus.NOT_REQUIRED, specialAccessStatus(33, since = 34, granted = false, requestCount = 0))
+        assertEquals(PermissionStatus.GRANTED, specialAccessStatus(34, since = 34, granted = true, requestCount = 0))
     }
 
     @Test
-    fun specialAccessAskedAndMissingGoesToSettings() {
+    fun specialAccessFirstRefusalCanAskAgainSecondGoesToSettings() {
         val repository = FakeSettingsRepository()
         val viewModel = viewModel(repository, GrantingScheduler(granted = false))
         collect(viewModel)
@@ -161,14 +161,28 @@ class SettingsViewModelTest {
 
         viewModel.onEvent(SettingsEvent.PermissionRequested(AppPermission.EXACT_ALARM))
 
-        // Marked, but the status waits for the answer: no recount while the system screen is open.
-        assertEquals(setOf(AppPermission.EXACT_ALARM), repository.requested.value)
+        // Counted, but the status changes only together with refreshPermissions.
+        assertEquals(mapOf(AppPermission.EXACT_ALARM to 1), repository.counts.value)
         assertEquals(PermissionStatus.NOT_ASKED, viewModel.uiState.value.exactAlarmStatus)
 
         viewModel.refreshPermissions()
+        assertEquals(PermissionStatus.CAN_ASK_AGAIN, viewModel.uiState.value.exactAlarmStatus)
 
+        viewModel.onEvent(SettingsEvent.PermissionRequested(AppPermission.EXACT_ALARM))
+        viewModel.refreshPermissions()
+        assertEquals(mapOf(AppPermission.EXACT_ALARM to 2), repository.counts.value)
         assertEquals(PermissionStatus.DENIED_PERMANENTLY, viewModel.uiState.value.exactAlarmStatus)
         assertEquals(PermissionStatus.NOT_ASKED, viewModel.uiState.value.fullScreenIntentStatus)
+    }
+
+    @Test
+    fun storedCountsAreReadOnStart() {
+        val repository = FakeSettingsRepository(initial = mapOf(AppPermission.FULL_SCREEN_INTENT to 1))
+        val viewModel = viewModel(repository, GrantingScheduler(granted = false))
+        collect(viewModel)
+
+        assertEquals(PermissionStatus.CAN_ASK_AGAIN, viewModel.uiState.value.fullScreenIntentStatus)
+        assertEquals(PermissionStatus.NOT_ASKED, viewModel.uiState.value.exactAlarmStatus)
     }
 
     @Test
@@ -187,45 +201,44 @@ class SettingsViewModelTest {
         val app = RuntimeEnvironment.getApplication()
         val manager = app.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(RingingChannels.VIBRATE, "ring", NotificationManager.IMPORTANCE_NONE),
+            NotificationChannel(RingingChannels.RING, "ring", NotificationManager.IMPORTANCE_NONE),
         )
         val viewModel = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = true), sdkInt = 28)
         collect(viewModel)
 
         val state = viewModel.uiState.value
         assertEquals(PermissionStatus.DENIED_PERMANENTLY, state.notificationStatus)
-        assertEquals(RingingChannels.VIBRATE, state.blockedChannelId)
+        assertEquals(RingingChannels.RING, state.blockedChannelId)
     }
 
     @Test
     fun channelRuleOnEveryApi() {
         assertEquals(
             PermissionStatus.DENIED_PERMANENTLY,
-            notificationStatus(34, enabled = true, granted = true, requested = true, rationale = false, channelOff = true),
+            notificationStatus(34, enabled = true, granted = true, requestCount = 2, rationale = false, channelOff = true),
         )
         assertEquals(
             PermissionStatus.DENIED_PERMANENTLY,
-            notificationStatus(34, enabled = false, granted = true, requested = true, rationale = false),
+            notificationStatus(34, enabled = false, granted = true, requestCount = 2, rationale = false),
         )
         assertEquals(
             PermissionStatus.NOT_ASKED,
-            notificationStatus(34, enabled = false, granted = false, requested = false, rationale = false, channelOff = true),
+            notificationStatus(34, enabled = false, granted = false, requestCount = 0, rationale = false, channelOff = true),
         )
         assertEquals(
             PermissionStatus.DENIED_PERMANENTLY,
-            notificationStatus(28, enabled = true, granted = false, requested = false, rationale = false, channelOff = true),
+            notificationStatus(28, enabled = true, granted = false, requestCount = 0, rationale = false, channelOff = true),
         )
     }
 
     @Test
     fun permissionStatusTable() {
-        assertEquals(PermissionStatus.GRANTED, permissionStatus(granted = true, requested = true, rationale = false))
-        assertEquals(PermissionStatus.NOT_ASKED, permissionStatus(granted = false, requested = false, rationale = false))
-        assertEquals(PermissionStatus.CAN_ASK_AGAIN, permissionStatus(granted = false, requested = true, rationale = true))
-        assertEquals(
-            PermissionStatus.DENIED_PERMANENTLY,
-            permissionStatus(granted = false, requested = true, rationale = false),
-        )
+        assertEquals(PermissionStatus.GRANTED, permissionStatus(granted = true, requestCount = 5, rationale = false))
+        assertEquals(PermissionStatus.CAN_ASK_AGAIN, permissionStatus(granted = false, requestCount = 3, rationale = true))
+        assertEquals(PermissionStatus.NOT_ASKED, permissionStatus(granted = false, requestCount = 0, rationale = false))
+        assertEquals(PermissionStatus.CAN_ASK_AGAIN, permissionStatus(granted = false, requestCount = 1, rationale = false))
+        assertEquals(PermissionStatus.DENIED_PERMANENTLY, permissionStatus(granted = false, requestCount = 2, rationale = false))
+        assertEquals(PermissionStatus.DENIED_PERMANENTLY, permissionStatus(granted = false, requestCount = 7, rationale = false))
     }
 
     private fun viewModel(
@@ -249,21 +262,22 @@ class SettingsViewModelTest {
 private class FakeSettingsRepository(
     private val failFirstReads: Int = 0,
     private val failWrites: Boolean = false,
+    initial: Map<AppPermission, Int> = emptyMap(),
 ) : SettingsRepository {
     var settingsReads = 0
         private set
-    val requested = MutableStateFlow<Set<AppPermission>>(emptySet())
+    val counts = MutableStateFlow(initial)
 
     override val settings: Flow<UserSettings> = flow {
         settingsReads++
         if (settingsReads <= failFirstReads) throw IllegalStateException("disk")
         emit(UserSettings(snoozeMinutes = 15))
     }
-    override val requestedPermissions: Flow<Set<AppPermission>> = requested
+    override val permissionRequestCounts: Flow<Map<AppPermission, Int>> = counts
 
     override suspend fun markRequested(permission: AppPermission) {
         if (failWrites) throw IllegalStateException("disk")
-        requested.value = requested.value + permission
+        counts.value = counts.value + (permission to (counts.value[permission] ?: 0) + 1)
     }
 
     override suspend fun setSnoozeMinutes(minutes: Int) = Unit
