@@ -1,6 +1,7 @@
 package com.walhalla.shiftalarm.ui
 
 import com.walhalla.shiftalarm.core.model.AppPermission
+import com.walhalla.shiftalarm.core.model.isSatisfied
 import com.walhalla.shiftalarm.core.ui.UiText
 
 /** Kept for the current settings screen. Derived from [SettingsUiState.notificationStatus]. */
@@ -10,32 +11,15 @@ enum class NotificationPermission {
     NotRequired,
 }
 
-/**
- * What the UI should do for one permission.
- * [DENIED_PERMANENTLY]: the system dialog will not show again, the button opens system settings.
- */
-enum class PermissionStatus {
-    GRANTED,
-    NOT_ASKED,
-    CAN_ASK_AGAIN,
-    DENIED_PERMANENTLY,
-
-    /** The OS version has no such permission (notifications below API 33, full-screen intent below 34). No button. */
-    NOT_REQUIRED,
-}
+/** Lives in :core:model; the alias keeps existing `ui.PermissionStatus` imports working. */
+typealias PermissionStatus = com.walhalla.shiftalarm.core.model.PermissionStatus
 
 /**
  * [rationale] is `shouldShowRequestPermissionRationale` from the Activity.
  * Exact alarm and full-screen intent have no runtime dialog, so they pass false:
  * once asked and still missing, they go to system settings.
  */
-fun permissionStatus(
-    granted: Boolean,
-    requested: Boolean,
-    rationale: Boolean,
-    required: Boolean = true,
-): PermissionStatus = when {
-    !required -> PermissionStatus.NOT_REQUIRED
+fun permissionStatus(granted: Boolean, requested: Boolean, rationale: Boolean): PermissionStatus = when {
     granted -> PermissionStatus.GRANTED
     rationale -> PermissionStatus.CAN_ASK_AGAIN
     requested -> PermissionStatus.DENIED_PERMANENTLY
@@ -54,8 +38,8 @@ data class SettingsUiState(
     val fullScreenIntentStatus: PermissionStatus = PermissionStatus.NOT_ASKED,
     val errorMessage: UiText? = null,
 ) {
-    val exactAlarm: Boolean get() = exactAlarmStatus.usable
-    val fullScreenIntent: Boolean get() = fullScreenIntentStatus.usable
+    val exactAlarm: Boolean get() = exactAlarmStatus.isSatisfied
+    val fullScreenIntent: Boolean get() = fullScreenIntentStatus.isSatisfied
     val canScheduleExactAlarms: Boolean get() = exactAlarm
     val canUseFullScreenIntent: Boolean get() = fullScreenIntent
     val notificationPermission: NotificationPermission
@@ -76,9 +60,27 @@ data class SettingsUiState(
     }
 }
 
-/** The app may rely on it: granted, or the OS has no such permission. */
-val PermissionStatus.usable: Boolean
-    get() = this == PermissionStatus.GRANTED || this == PermissionStatus.NOT_REQUIRED
+/**
+ * Notifications. Below API 33 there is no runtime dialog: [NOT_REQUIRED][PermissionStatus.NOT_REQUIRED]
+ * while notifications are on, [DENIED_PERMANENTLY][PermissionStatus.DENIED_PERMANENTLY] (button to
+ * notification settings) when the user switched them off.
+ */
+fun notificationStatus(
+    sdkInt: Int,
+    enabled: Boolean,
+    granted: Boolean,
+    requested: Boolean,
+    rationale: Boolean,
+): PermissionStatus = when {
+    sdkInt < 33 -> if (enabled) PermissionStatus.NOT_REQUIRED else PermissionStatus.DENIED_PERMANENTLY
+    else -> permissionStatus(granted, requested, rationale)
+}
+
+/** Special access (exact alarm from API 31, full-screen intent from API 34): no dialog, only settings. */
+fun specialAccessStatus(sdkInt: Int, since: Int, granted: Boolean, requested: Boolean): PermissionStatus = when {
+    sdkInt < since -> PermissionStatus.NOT_REQUIRED
+    else -> permissionStatus(granted, requested, rationale = false)
+}
 
 sealed interface SettingsEvent {
     data class SelectSnooze(val minutes: Int) : SettingsEvent

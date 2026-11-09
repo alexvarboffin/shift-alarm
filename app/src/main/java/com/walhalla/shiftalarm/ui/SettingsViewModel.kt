@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -34,6 +35,7 @@ class SettingsViewModel internal constructor(
     private val context: Context,
     private val clock: Clock,
     scopeOverride: CoroutineScope?,
+    private val sdkInt: Int = Build.VERSION.SDK_INT,
 ) : ViewModel() {
     private val workScope = scopeOverride ?: viewModelScope
     private val grants = MutableStateFlow(readGrants())
@@ -74,22 +76,24 @@ class SettingsViewModel internal constructor(
             base
         } else {
             base.copy(
-                notificationStatus = permissionStatus(
+                notificationStatus = notificationStatus(
+                    sdkInt = sdkInt,
+                    enabled = grant.notificationsEnabled,
                     granted = grant.notifications,
                     requested = AppPermission.NOTIFICATIONS in asked,
                     rationale = rationale,
-                    required = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
                 ),
-                exactAlarmStatus = permissionStatus(
+                exactAlarmStatus = specialAccessStatus(
+                    sdkInt = sdkInt,
+                    since = Build.VERSION_CODES.S,
                     granted = grant.exact,
                     requested = AppPermission.EXACT_ALARM in asked,
-                    rationale = false,
                 ),
-                fullScreenIntentStatus = permissionStatus(
+                fullScreenIntentStatus = specialAccessStatus(
+                    sdkInt = sdkInt,
+                    since = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
                     granted = grant.fullScreen,
                     requested = AppPermission.FULL_SCREEN_INTENT in asked,
-                    rationale = false,
-                    required = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
                 ),
             )
         }
@@ -148,14 +152,15 @@ class SettingsViewModel internal constructor(
     }
 
     private fun readGrants(): Grants = Grants(
+        notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled(),
         notifications = notificationsGranted(),
         exact = alarmScheduler.canScheduleExactAlarms(),
         fullScreen = alarmScheduler.canUseFullScreenIntent(),
     )
 
-    /** Below API 33 there is no runtime permission; the status is NOT_REQUIRED, this value is unused. */
+    /** Runtime permission only from API 33; below it [notificationStatus] uses areNotificationsEnabled. */
     private fun notificationsGranted(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+        if (sdkInt < Build.VERSION_CODES.TIRAMISU) return false
         return ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.POST_NOTIFICATIONS,
@@ -163,6 +168,7 @@ class SettingsViewModel internal constructor(
     }
 
     private data class Grants(
+        val notificationsEnabled: Boolean,
         val notifications: Boolean,
         val exact: Boolean,
         val fullScreen: Boolean,

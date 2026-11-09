@@ -86,7 +86,7 @@ class ScheduleViewModel internal constructor(
     }
 
     /** "Retry": clears both errors and subscribes to the repository again. */
-    fun retry() {
+    private fun retry() {
         commandError.value = null
         readError.value = null
         reload.update { it + 1 }

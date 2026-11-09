@@ -168,12 +168,12 @@ class CalendarViewModel(
     }
 
     /** Hides a failed write. A load error stays until [retry]. */
-    fun dismissError() {
+    private fun dismissError() {
         commandError.value = null
     }
 
     /** "Retry": clears both errors and subscribes to the repositories again. */
-    fun retry() {
+    private fun retry() {
         commandError.value = null
         readError.value = null
         reload.value += 1

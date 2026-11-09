@@ -1,5 +1,6 @@
 package com.walhalla.shiftalarm.ui
 
+import android.app.NotificationManager
 import com.walhalla.shiftalarm.R
 import com.walhalla.shiftalarm.core.alarm.AlarmScheduler
 import com.walhalla.shiftalarm.core.model.AppPermission
@@ -26,6 +27,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -95,8 +97,43 @@ class SettingsViewModelTest {
         val state = viewModel.uiState.value
         assertEquals(PermissionStatus.GRANTED, state.exactAlarmStatus)
         assertEquals(PermissionStatus.GRANTED, state.fullScreenIntentStatus)
-        // sdk 28: no runtime notification permission.
-        assertEquals(PermissionStatus.GRANTED, state.notificationStatus)
+        // API 34 logic: POST_NOTIFICATIONS is not granted on the test device, never asked.
+        assertEquals(PermissionStatus.NOT_ASKED, state.notificationStatus)
+    }
+
+    @Test
+    fun oldApiNotificationsOnAreNotRequired() {
+        val viewModel = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = false), sdkInt = 28)
+        collect(viewModel)
+
+        val state = viewModel.uiState.value
+        assertEquals(PermissionStatus.NOT_REQUIRED, state.notificationStatus)
+        assertEquals(PermissionStatus.NOT_REQUIRED, state.exactAlarmStatus)
+        assertEquals(PermissionStatus.NOT_REQUIRED, state.fullScreenIntentStatus)
+        assertTrue(state.exactAlarm)
+        assertTrue(state.fullScreenIntent)
+        assertEquals(NotificationPermission.NotRequired, state.notificationPermission)
+    }
+
+    @Test
+    fun oldApiNotificationsOffGoToSettings() {
+        val app = RuntimeEnvironment.getApplication()
+        shadowOf(app.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(false)
+        val viewModel = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = true), sdkInt = 28)
+        collect(viewModel)
+
+        assertEquals(PermissionStatus.DENIED_PERMANENTLY, viewModel.uiState.value.notificationStatus)
+    }
+
+    @Test
+    fun statusRulesByApiLevel() {
+        assertEquals(PermissionStatus.NOT_REQUIRED, notificationStatus(32, enabled = true, granted = false, requested = false, rationale = false))
+        assertEquals(PermissionStatus.DENIED_PERMANENTLY, notificationStatus(32, enabled = false, granted = false, requested = false, rationale = false))
+        assertEquals(PermissionStatus.NOT_ASKED, notificationStatus(33, enabled = true, granted = false, requested = false, rationale = false))
+        assertEquals(PermissionStatus.NOT_REQUIRED, specialAccessStatus(30, since = 31, granted = false, requested = true))
+        assertEquals(PermissionStatus.DENIED_PERMANENTLY, specialAccessStatus(31, since = 31, granted = false, requested = true))
+        assertEquals(PermissionStatus.NOT_REQUIRED, specialAccessStatus(33, since = 34, granted = false, requested = false))
+        assertEquals(PermissionStatus.GRANTED, specialAccessStatus(34, since = 34, granted = true, requested = false))
     }
 
     @Test
@@ -135,12 +172,17 @@ class SettingsViewModelTest {
         )
     }
 
-    private fun viewModel(repository: SettingsRepository, scheduler: AlarmScheduler) = SettingsViewModel(
+    private fun viewModel(
+        repository: SettingsRepository,
+        scheduler: AlarmScheduler,
+        sdkInt: Int = 34,
+    ) = SettingsViewModel(
         settingsRepository = repository,
         alarmScheduler = scheduler,
         context = RuntimeEnvironment.getApplication(),
         clock = Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
         scopeOverride = scope,
+        sdkInt = sdkInt,
     )
 
     private fun collect(viewModel: SettingsViewModel) {

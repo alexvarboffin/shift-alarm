@@ -72,7 +72,7 @@ class ScheduleViewModelTest {
         try {
             assertEquals(UiText.Res(R.string.schedule_error_read), viewModel.uiState.value.errorMessage)
 
-            viewModel.retry()
+            viewModel.onEvent(ScheduleEvent.Retry)
 
             assertNull(viewModel.uiState.value.errorMessage)
             assertEquals(2, repository.activeReads)
