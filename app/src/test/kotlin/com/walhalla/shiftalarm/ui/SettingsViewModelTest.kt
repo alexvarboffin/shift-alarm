@@ -212,6 +212,23 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun fallbackChannelOffCountsOnlyWithoutExactAlarms() {
+        val app = RuntimeEnvironment.getApplication()
+        app.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(RingingChannels.FALLBACK, "fallback", NotificationManager.IMPORTANCE_NONE),
+        )
+        val withoutExact = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = false), sdkInt = 28)
+        collect(withoutExact)
+        assertEquals(PermissionStatus.DENIED_PERMANENTLY, withoutExact.uiState.value.notificationStatus)
+        assertEquals(RingingChannels.FALLBACK, withoutExact.uiState.value.blockedChannelId)
+
+        val withExact = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = true), sdkInt = 28)
+        collect(withExact)
+        assertEquals(PermissionStatus.NOT_REQUIRED, withExact.uiState.value.notificationStatus)
+        assertNull(withExact.uiState.value.blockedChannelId)
+    }
+
+    @Test
     fun channelRuleOnEveryApi() {
         assertEquals(
             PermissionStatus.DENIED_PERMANENTLY,
