@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.first
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import org.koin.dsl.bind
 import org.koin.dsl.module
 
 class TomorrowShiftWidget : GlanceAppWidget(), KoinComponent {
@@ -83,5 +84,5 @@ class GlanceHomeWidgetRefresher(
 }
 
 val widgetModule = module {
-    single<HomeWidgetRefresher> { GlanceHomeWidgetRefresher(androidContext()) }
+    single { GlanceHomeWidgetRefresher(androidContext()) } bind HomeWidgetRefresher::class
 }

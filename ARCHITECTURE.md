@@ -65,6 +65,7 @@ flowchart TD
 - Ресиверы, `RingingService` и Glance-виджет реализуют `KoinComponent` и берут зависимости через `by inject()`. Конструкторы классов без DI-аннотаций.
 - Скоуп приложения: `single(ApplicationScope) { CoroutineScope(SupervisorJob() + Dispatchers.Default) }`, где `ApplicationScope = named("ApplicationScope")`.
 - Koin проверяет граф в рантайме, а не при компиляции. Поэтому `KoinGraphTest` в `:app` вызывает `verify(extraTypes = listOf(Context::class, File::class))`. Новый биндинг без зелёного `KoinGraphTest` не мёржится.
+- Реализацию интерфейса регистрируем по конкретному классу: `single { Impl(get()) } bind Api::class`. Запись `single<Api> { Impl(get()) }` запрещена: `verify()` видит только тип `Api` без конструктора и пропущенную зависимость `Impl` не ловит.
 
 ## Домен и шаблоны
 
