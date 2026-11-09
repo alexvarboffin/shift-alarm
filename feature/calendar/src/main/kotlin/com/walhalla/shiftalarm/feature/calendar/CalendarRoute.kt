@@ -1,8 +1,8 @@
 package com.walhalla.shiftalarm.feature.calendar
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,16 +28,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.walhalla.shiftalarm.core.ui.ShiftPane
+import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
-fun CalendarRoute(viewModel: CalendarViewModel = hiltViewModel()) {
+fun CalendarRoute(viewModel: CalendarViewModel = koinViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     CalendarScreen(
         state = state,

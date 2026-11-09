@@ -15,21 +15,20 @@ import android.os.PowerManager
 import android.os.UserManager
 import androidx.core.app.NotificationCompat
 import com.walhalla.shiftalarm.core.model.SettingsRepository
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
-@AndroidEntryPoint
-class RingingService : Service() {
-    @Inject lateinit var scheduler: AlarmScheduler
+class RingingService : Service(), KoinComponent {
+    private val scheduler: AlarmScheduler by inject()
 
-    @Inject lateinit var settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository by inject()
 
-    @Inject lateinit var ringingLaunchIntent: RingingLaunchIntent
+    private val ringingLaunchIntent: RingingLaunchIntent by inject()
 
-    @Inject @ApplicationScope lateinit var scope: CoroutineScope
+    private val scope: CoroutineScope by inject(ApplicationScope)
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var ringingShiftName: String = "Смена"

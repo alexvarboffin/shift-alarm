@@ -11,12 +11,9 @@ import com.walhalla.shiftalarm.core.model.PatternTemplate
 import com.walhalla.shiftalarm.core.model.ShiftKind
 import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftType
-import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
@@ -36,12 +33,10 @@ data class DirectBootSnapshot(
     val exceptions: List<AlarmException>,
 )
 
-@Singleton
 class DeviceProtectedAlarmStore private constructor(
     private val file: File,
 ) {
-    @Inject
-    constructor(@ApplicationContext context: Context) : this(
+    constructor(context: Context) : this(
         File(context.createDeviceProtectedStorageContext().filesDir, DEFAULT_FILE),
     )
 

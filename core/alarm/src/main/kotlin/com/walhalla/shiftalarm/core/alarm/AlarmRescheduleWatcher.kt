@@ -9,8 +9,6 @@ import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftRepository
 import com.walhalla.shiftalarm.core.model.UserSettings
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,13 +23,12 @@ import kotlinx.coroutines.launch
  * [AlarmScheduler.scheduleNext] recomputes the next trigger and rewrites the
  * device-protected snapshot. Callers do not schedule on their own.
  */
-@Singleton
-class AlarmRescheduleWatcher @Inject constructor(
+class AlarmRescheduleWatcher(
     private val shiftRepository: ShiftRepository,
     private val alarmRepository: AlarmRepository,
     private val settingsRepository: SettingsRepository,
     private val scheduler: AlarmScheduler,
-    @ApplicationScope private val scope: CoroutineScope,
+    private val scope: CoroutineScope,
 ) {
     private val started = AtomicBoolean(false)
 

@@ -20,13 +20,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.walhalla.shiftalarm.core.model.PatternTemplate
 import com.walhalla.shiftalarm.core.ui.ShiftPane
+import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
-fun ScheduleRoute(viewModel: ScheduleViewModel = hiltViewModel()) {
+fun ScheduleRoute(viewModel: ScheduleViewModel = koinViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     ScheduleScreen(
         state = state,

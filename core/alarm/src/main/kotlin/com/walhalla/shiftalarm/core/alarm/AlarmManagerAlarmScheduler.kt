@@ -21,16 +21,12 @@ import com.walhalla.shiftalarm.core.model.ScheduledTrigger
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Instant
 import java.time.ZoneId
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
 
-@Singleton
-class AlarmManagerAlarmScheduler @Inject constructor(
-    @ApplicationContext private val context: Context,
+class AlarmManagerAlarmScheduler(
+    private val context: Context,
     private val shiftRepository: ShiftRepository,
     private val alarmRepository: AlarmRepository,
     private val settingsRepository: SettingsRepository,
