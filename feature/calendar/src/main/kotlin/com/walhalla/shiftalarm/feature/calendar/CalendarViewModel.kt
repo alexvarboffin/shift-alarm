@@ -26,6 +26,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZonedDateTime
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -110,7 +111,7 @@ class CalendarViewModel @Inject constructor(
 
     /** One-off replacement of the pattern slot. Same name as the feature ViewModel. */
     fun setOverride(date: LocalDate, shift: ShiftType) {
-        viewModelScope.launch {
+        command {
             shiftRepository.upsertOverride(DayOverride(date, shift))
             widgetRefresher.refresh()
             commandError.value = null
@@ -122,7 +123,7 @@ class CalendarViewModel @Inject constructor(
             clearOverride(date)
             return
         }
-        viewModelScope.launch {
+        command {
             val type = ShiftTypeCatalog.find(shiftRepository.observeShiftTypes().first(), shiftTypeId)
             if (type == null) {
                 commandError.value = UiText.Res(R.string.calendar_error_unknown_type)
@@ -135,7 +136,7 @@ class CalendarViewModel @Inject constructor(
     }
 
     fun clearOverride(date: LocalDate) {
-        viewModelScope.launch {
+        command {
             shiftRepository.deleteOverride(date)
             widgetRefresher.refresh()
             commandError.value = null
@@ -143,17 +144,35 @@ class CalendarViewModel @Inject constructor(
     }
 
     fun setAlarmException(exception: StoredAlarmException) {
-        viewModelScope.launch {
+        command {
             alarmRepository.upsertException(exception)
             commandError.value = null
         }
     }
 
     fun clearAlarmException(date: LocalDate) {
-        viewModelScope.launch {
+        command {
             alarmRepository.deleteException(date)
             commandError.value = null
         }
+    }
+
+    /** Runs a write. A failure becomes a command error instead of crashing the screen. */
+    private fun command(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                commandError.value = UiText.Res(R.string.calendar_error_save)
+            }
+        }
+    }
+
+    /** Hides a failed write. A load error stays until [retry]. */
+    fun dismissError() {
+        commandError.value = null
     }
 
     /** "Retry": clears both errors and subscribes to the repositories again. */
@@ -177,6 +196,7 @@ class CalendarViewModel @Inject constructor(
             is CalendarEvent.ClearAlarmException -> clearAlarmException(event.date)
             is CalendarEvent.ShowMonth -> showMonth(event.month)
             CalendarEvent.Retry -> retry()
+            CalendarEvent.DismissError -> dismissError()
         }
     }
 

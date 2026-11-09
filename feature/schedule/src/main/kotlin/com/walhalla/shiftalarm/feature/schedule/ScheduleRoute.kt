@@ -78,7 +78,7 @@ fun ScheduleRoute(viewModel: ScheduleViewModel = hiltViewModel()) {
         onApplyTemplate = viewModel::applyTemplate,
         onActivate = viewModel::activate,
         onEditorEvent = viewModel::onEditorEvent,
-        onRetry = viewModel::retry,
+        onRetry = { viewModel.onEvent(ScheduleEvent.Retry) },
     )
 }
 

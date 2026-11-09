@@ -2,6 +2,7 @@
 <resources>
     <string name="calendar_error_load">Не удалось собрать месяц</string>
     <string name="calendar_error_unknown_type">Неизвестный тип смены</string>
+    <string name="calendar_error_save">Не удалось сохранить изменения</string>
     <string name="calendar_previous_month">Предыдущий месяц</string>
     <string name="calendar_next_month">Следующий месяц</string>
     <string name="calendar_month_year">%1$s %2$d</string>

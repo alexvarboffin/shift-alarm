@@ -5,6 +5,7 @@
     <string name="schedule_error_slots_max">В цикле не больше %1$d слотов.</string>
     <string name="schedule_error_lead_range">Упреждение от %1$d до %2$d минут.</string>
     <string name="schedule_error_unknown_type">Неизвестный тип смены.</string>
+    <string name="schedule_error_save">Не удалось сохранить график</string>
     <string name="schedule_intro">Цикл начнётся с сегодняшнего дня. Потом его можно сменить на календаре точечными исключениями.</string>
     <string name="schedule_templates_title">Шаблоны</string>
     <string name="schedule_saved_title">Сохранённые графики</string>

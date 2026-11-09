@@ -18,6 +18,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +42,7 @@ class ScheduleViewModel internal constructor(
     private val workScope = scopeOverride ?: viewModelScope
     private val editor = MutableStateFlow<EditorDraft?>(null)
     private val readError = MutableStateFlow<UiText?>(null)
+    private val commandError = MutableStateFlow<UiText?>(null)
     private val reload = MutableStateFlow(0)
 
     @Inject
@@ -55,7 +57,7 @@ class ScheduleViewModel internal constructor(
         reload.flatMapLatest { repository.observeActivePattern().keepAlive(null) { readError.value = readFailure() } },
         reload.flatMapLatest { repository.observeShiftTypes().keepAlive(emptyList()) { readError.value = readFailure() } },
         editor,
-        readError,
+        combine(commandError, readError) { command, read -> command ?: read },
     ) { patterns, active, storedTypes, draft, error ->
         ScheduleUiState(
             isLoading = false,
@@ -80,10 +82,32 @@ class ScheduleViewModel internal constructor(
 
     private fun readFailure(): UiText = UiText.Res(R.string.schedule_error_read)
 
-    /** "Retry": clears the read error and subscribes to the repository again. */
+    fun onEvent(event: ScheduleEvent) {
+        when (event) {
+            ScheduleEvent.Retry -> retry()
+            ScheduleEvent.DismissError -> commandError.value = null
+        }
+    }
+
+    /** "Retry": clears both errors and subscribes to the repository again. */
     fun retry() {
+        commandError.value = null
         readError.value = null
         reload.update { it + 1 }
+    }
+
+    /** Runs a write. A failure becomes a command error instead of crashing the screen. */
+    private fun command(block: suspend () -> Unit) {
+        workScope.launch {
+            try {
+                block()
+                commandError.value = null
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                commandError.value = UiText.Res(R.string.schedule_error_save)
+            }
+        }
     }
 
     fun applyTemplate(template: PatternTemplate) {
@@ -91,14 +115,14 @@ class ScheduleViewModel internal constructor(
             openCustomEditor()
             return
         }
-        workScope.launch {
+        command {
             val today = LocalDate.now(clock)
             val pattern = when (template) {
                 PatternTemplate.TWO_TWO -> ShiftTemplates.twoTwo(today)
                 PatternTemplate.THREE_THREE -> ShiftTemplates.threeThree(today)
                 PatternTemplate.ONE_THREE -> ShiftTemplates.oneThree(today)
                 PatternTemplate.FIVE_TWO -> ShiftTemplates.fiveTwo(today)
-                PatternTemplate.CUSTOM -> return@launch
+                PatternTemplate.CUSTOM -> return@command
             }
             repository.saveAndActivate(pattern)
             widgetRefresher.refresh()
@@ -162,13 +186,13 @@ class ScheduleViewModel internal constructor(
                     saveError = null,
                 )
             }
-            PatternEditorEvent.Save -> workScope.launch { save(current) }
+            PatternEditorEvent.Save -> command { save(current) }
             PatternEditorEvent.Cancel -> editor.value = null
         }
     }
 
     fun activate(patternId: String) {
-        workScope.launch {
+        command {
             repository.setActivePattern(patternId)
             widgetRefresher.refresh()
         }
