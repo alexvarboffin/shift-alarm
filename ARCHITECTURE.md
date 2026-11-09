@@ -57,6 +57,8 @@ flowchart TD
 
 ## Почему Hilt, а не Koin
 
+> Раздел описывает код на базе T10b/T10f. T10g ([PR #2](https://github.com/alexvarboffin/shift-alarm/pull/2)) мёржится сразу следом и заменяет Hilt на Koin вместе с этим разделом и строками каталога версий.
+
 Hilt проверяет граф при компиляции: пропущенный биндинг `ShiftRepository` или `RingingLaunchIntent` ломает сборку, а не первый запуск. Для этого скелета это важнее, чем простота Koin. Плюс штатные `@HiltViewModel` и `@AndroidEntryPoint` на `Activity`, `Service` и `BroadcastReceiver`, без своего service locator. Koin был бы уместен, если бы граф был маленьким и ошибки в рантайме были приемлемы. Здесь модулей десять, и контракт между ними должен рваться на KSP.
 
 ## Домен и шаблоны
@@ -260,11 +262,11 @@ sealed interface RingingUiState {
 
 `NOT_REQUIRED`: на этой версии Android разрешение не запрашивается во время работы. Уведомления ниже API 33, `EXACT_ALARM` ниже API 31, `FULL_SCREEN_INTENT` ниже API 34. ViewModel отдаёт `NOT_REQUIRED` и не подменяет его на `GRANTED`. `val PermissionStatus.isSatisfied get() = this == GRANTED || this == NOT_REQUIRED`. UI показывает такую карточку как «не требуется», без кнопки, и `PermissionRequested` для неё не шлёт.
 
-Уведомления проверяются глубже runtime-разрешения, на всех API. Если разрешение выдано (или `NOT_REQUIRED` ниже API 33), но `NotificationManagerCompat.areNotificationsEnabled()` = false, или выключен канал звонка (`getNotificationChannelCompat(RingingChannels.RING)?.importance == IMPORTANCE_NONE`, публичная константа в `:core:alarm`), статус `DENIED_PERMANENTLY`. Кнопка открывает `Settings.ACTION_APP_NOTIFICATION_SETTINGS`, а при выключенном канале `ACTION_CHANNEL_NOTIFICATION_SETTINGS` с id канала. Статус пересчитывается на ON_RESUME. Для `FULL_SCREEN_INTENT` ниже API 34 остаётся просто `NOT_REQUIRED`.
+Уведомления проверяются глубже runtime-разрешения, на всех API. Если разрешение выдано (или `NOT_REQUIRED` ниже API 33), но `NotificationManagerCompat.areNotificationsEnabled()` = false, или выключен канал звонка (`getNotificationChannelCompat(RingingChannels.RING)?.importance == IMPORTANCE_NONE`, публичная константа в `:core:alarm`), статус `DENIED_PERMANENTLY`. Кнопка открывает `Settings.ACTION_APP_NOTIFICATION_SETTINGS`, а при выключенном канале `ACTION_CHANNEL_NOTIFICATION_SETTINGS` с id канала. Статус пересчитывается на ON_RESUME. Правило канала перекрывает `NOT_REQUIRED` и `GRANTED`: при выключенных уведомлениях или канале статус `DENIED_PERMANENTLY` на любом API. Для `FULL_SCREEN_INTENT` ниже API 34 остаётся просто `NOT_REQUIRED`.
 
 Ошибки Schedule и Calendar. `loadError` показывается как состояние экрана с кнопкой «Повторить» (`Retry`), закрыть его нельзя. `commandError` показывается баннером с «Повторить» и «Закрыть» (`DismissError`). Если есть оба, на экране `loadError`. UI не зовёт `viewModel.retry()` напрямую, только `onEvent(...Retry)`.
 
-Код этого контракта (`AppPermission`, `PermissionStatus`, `permissionRequestCounts`, `loadError`/`commandError`) реализует T12, [PR #4](https://github.com/alexvarboffin/shift-alarm/pull/4). До его мёржа `main` отстаёт от этого раздела, сверять документ с кодом нужно по ветке T12.
+**Ещё не реализовано.** `AppPermission`, `PermissionStatus` со счётчиком `permissionRequestCounts`, `NOT_REQUIRED`/`isSatisfied`, правило канала с `RingingChannels.RING`, `loadError`/`commandError`, `Retry`/`DismissError`/`ClearSelection`, свой плеер в `RingingService`, `isRinging` и тип FGS `mediaPlayback` — это цель T12 ([PR #4](https://github.com/alexvarboffin/shift-alarm/pull/4)). В T12 `1d3f606` их ещё нет. До мёржа T12 код отстаёт от этого раздела, и QA сверяет его с кодом по свежему head T12.
 
 Тексты ошибок во всех UiState идут как `UiText`. Фиксированные тексты задаются через `UiText.Res`, а `UiText.Raw` нужен только для строк, пришедших извне.
 
@@ -353,14 +355,14 @@ Glance App Widget, подпись в списке виджетов: «завтр
 Для UI и feature:
 
 - Календарь. Методы ViewModel, как в feature PR: `setOverride`, `clearOverride`, `setAlarmException`, `clearAlarmException`, `showMonth`. Те же имена у `CalendarEvent` (`SetOverride(date, shiftTypeId?)` и остальные). `shiftTypeId == null` снимает подмену. `CalendarUiState.selectedDay` — деталь выбранного дня.
-- Тексты ошибок во всех UiState (`errorMessage`, `loadError`, `commandError`) — `UiText?`. Единственный тип в `:core:ui`: sealed `Res(@StringRes id, args)` и `Raw(String)`. `Raw` оставлен для уже готового текста (проверка ввода, `Throwable.message`); обычные строки экрана — `Res`. `resolve(context)` и `@Composable resolve()` дают строку. `String.asUiText()` и `@StringRes Int.asUiText()` собирают значение. В PR фич своего `UiText` не было.
+- `errorMessage` во всех UiState — `UiText?` (разделение на `loadError`/`commandError` — контракт выше, реализует T12). Единственный тип в `:core:ui`: sealed `Res(@StringRes id, args)` и `Raw(String)`. `Raw` оставлен для уже готового текста (проверка ввода, `Throwable.message`); обычные строки экрана — `Res`. `resolve(context)` и `@Composable resolve()` дают строку. `String.asUiText()` и `@StringRes Int.asUiText()` собирают значение. В PR фич своего `UiText` не было.
 - Свой график остаётся в v1. `ScheduleUiState.editor: PatternEditorUiState?` (имя, дата старта, `slots: List<ShiftTypeId>`, `availableTypes`, текст проверки). События: `AddSlot`, `RemoveSlot`, `MoveSlot`, `SetName`, `SetStartDate`, `SetStartTime`, `SetLeadMinutes`, `Save`, `Cancel`. Длина цикла 1..31, это `PatternLimits`. `applyTemplate(CUSTOM)` открывает черновик, `Save` кладёт паттерн в Room и делает его активным, `Cancel` выбрасывает черновик без записи. `SetStartTime` / `SetLeadMinutes` меняют начало и упреждение типа в черновике.
 - Настройки. `snoozeOptions = [5, 10, 15, 20, 30]`, выбранное значение — `selectedSnooze`. Событие `SettingsEvent.SelectSnooze`. Минуты вне списка отбрасываются.
 - Динамический цвет. `UserSettings.useDynamicColor` в DataStore, ключ `use_dynamic_color`, по умолчанию `true`. `ShiftAlarmTheme(useDynamicColor)` подключает `dynamicLightColorScheme` / `dynamicDarkColorScheme` только на API 31+. Ниже остаётся своя палитра. Событие `SettingsEvent.SetUseDynamicColor`.
 - Будильник. `RingingUiState` — sealed: `Loading`, `Ringing(...)`, `Error(errorMessage: UiText)`. Пока нет имени смены, состояние `Error`.
 - `ShiftRepository.saveAndActivate` пишет цикл и единственный активный флаг одной Room-транзакцией.
 - Direct boot. `RescheduleReceiver`, `AlarmFireReceiver` и `RingingService` — `directBootAware`. До разблокировки будильник ставит `LOCKED_BOOT_COMPLETED` из снимка. После разблокировки тот же пересчёт делает `BOOT_COMPLETED`. Снимок активного графика, исключений и следующего триггера лежит в DataStore на `createDeviceProtectedStorageContext`. Если своего графика в Room ещё нет, снимок переносится туда, затем снимок обновляется из основного хранилища.
-- Настройки. Статусы `notificationStatus`, `exactAlarmStatus`, `fullScreenIntentStatus` типа `PermissionStatus`, флаги `exactAlarm` и `fullScreenIntent` выводятся через `isSatisfied` (контракт выше). Старый `notificationPermission: Granted / Denied / NotRequired` заменён.
+- Настройки. В T10b: `notificationPermission`: `Granted` / `Denied` / `NotRequired`, флаги `exactAlarm`, `fullScreenIntent`. Заменяется контрактом `PermissionStatus` выше, реализует T12.
 - Robolectric 4.17 (Maven Central, stable, SDK 36 есть в `DefaultSdkProvider`) подключён как `testImplementation`. Один тест `ShadowAlarmManager` проверяет, что `scheduleNext` вызывает `setAlarmClock`.
 - Glance preview 1.2.0 совместим с compileSdk 36 и подключён только в debug `:widget` (`glance-preview`, `glance-appwidget-preview`). Отдельный `@Preview` виджета в этой задаче не добавлялся.
 - Общий идентификатор типа для контрактов — value class `ShiftTypeId`. Список типов для выбора: встроенные плюс сохранённые, `ShiftRepository.observeShiftTypes()`.
