@@ -1,6 +1,7 @@
 package com.walhalla.shiftalarm.ui
 
 import android.app.Application
+import android.Manifest.permission.POST_NOTIFICATIONS
 import android.app.NotificationManager
 import com.walhalla.shiftalarm.R
 import com.walhalla.shiftalarm.core.alarm.AlarmScheduler
@@ -93,14 +94,25 @@ class SettingsViewModelTest {
 
     @Test
     fun grantedOnlyAfterRealCheck() {
+        shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(POST_NOTIFICATIONS)
         val viewModel = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = true))
         collect(viewModel)
 
         val state = viewModel.uiState.value
         assertEquals(PermissionStatus.GRANTED, state.exactAlarmStatus)
         assertEquals(PermissionStatus.GRANTED, state.fullScreenIntentStatus)
-        // API 34 logic: POST_NOTIFICATIONS is not granted on the test device, never asked.
-        assertEquals(PermissionStatus.NOT_ASKED, state.notificationStatus)
+        assertEquals(PermissionStatus.GRANTED, state.notificationStatus)
+    }
+
+    @Test
+    fun notificationsNotGrantedAndNeverAskedIsNotAsked() {
+        // The test runtime is API 28: ContextCompat answers POST_NOTIFICATIONS from areNotificationsEnabled().
+        val app = RuntimeEnvironment.getApplication()
+        shadowOf(app.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(false)
+        val viewModel = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = true))
+        collect(viewModel)
+
+        assertEquals(PermissionStatus.NOT_ASKED, viewModel.uiState.value.notificationStatus)
     }
 
     @Test
