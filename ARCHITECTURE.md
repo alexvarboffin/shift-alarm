@@ -180,7 +180,7 @@ interface RingingLaunchIntent {
 }
 ```
 
-`AlarmPermissionIntents.requestExactAlarm` и `manageFullScreenIntent` открывают системные экраны. На API, где действия нет, методы возвращают `null`.
+`AlarmPermissionIntents.requestExactAlarm` и `manageFullScreenIntent` открывают системные экраны. На API, где действия нет, методы возвращают `null`. Эти intent открываются только обычным `startActivity` из UI и никогда не заворачиваются в `PendingIntent`. Уведомление «точные будильники выключены» открывает своё приложение явным intent (`getLaunchIntentForPackage`) с `FLAG_IMMUTABLE`.
 
 Состояние экранов — неизменяемые data class, их публикует `StateFlow`:
 
@@ -190,7 +190,7 @@ data class ScheduleUiState(
     val patterns: List<PatternSummary> = emptyList(),
     val activePatternId: String? = null,
     val editor: PatternEditorUiState? = null,
-    val errorMessage: String? = null,
+    val errorMessage: UiText? = null,
 )
 
 data class CalendarUiState(
@@ -200,7 +200,7 @@ data class CalendarUiState(
     val selected: CalendarDayUi? = null,
     val selectedDay: SelectedDayDetail? = null,
     val hasActivePattern: Boolean = false,
-    val errorMessage: String? = null,
+    val errorMessage: UiText? = null,
 )
 
 data class SettingsUiState(
@@ -209,10 +209,25 @@ data class SettingsUiState(
     val selectedSnooze: Int = 10,
     val vibrationEnabled: Boolean = true,
     val useDynamicColor: Boolean = true,
-    val canScheduleExactAlarms: Boolean = true,
-    val canUseFullScreenIntent: Boolean = true,
-    val errorMessage: String? = null,
-)
+    // Ничего не считается выданным, пока реальная проверка не скажет обратное.
+    val notificationStatus: PermissionStatus = PermissionStatus.NOT_ASKED,
+    val exactAlarmStatus: PermissionStatus = PermissionStatus.NOT_ASKED,
+    val fullScreenIntentStatus: PermissionStatus = PermissionStatus.NOT_ASKED,
+    val errorMessage: UiText? = null,
+) {
+    val exactAlarm: Boolean get() = exactAlarmStatus == PermissionStatus.GRANTED
+    val fullScreenIntent: Boolean get() = fullScreenIntentStatus == PermissionStatus.GRANTED
+    fun status(permission: AppPermission): PermissionStatus
+}
+
+enum class PermissionStatus { GRANTED, NOT_ASKED, CAN_ASK_AGAIN, DENIED_PERMANENTLY }
+
+sealed interface SettingsEvent {
+    data class SelectSnooze(val minutes: Int) : SettingsEvent
+    data class SetUseDynamicColor(val enabled: Boolean) : SettingsEvent
+    data class PermissionRequested(val permission: AppPermission) : SettingsEvent // до системного диалога
+    data object Retry : SettingsEvent
+}
 
 sealed interface RingingUiState {
     data object Loading : RingingUiState
@@ -221,9 +236,13 @@ sealed interface RingingUiState {
         val triggerAtEpochMillis: Long,
         val snoozeMinutes: Int,
     ) : RingingUiState
-    data class Error(val message: String) : RingingUiState
+    data class Error(val errorMessage: UiText) : RingingUiState
 }
 ```
+
+Разрешения. `enum class AppPermission { NOTIFICATIONS, EXACT_ALARM, FULL_SCREEN_INTENT }` лежит в `:core:model`. `SettingsRepository` хранит, какие разрешения уже запрашивались: `requestedPermissions: Flow<Set<AppPermission>>` и `suspend fun markRequested(permission)`, ключ DataStore `requested_permissions`. ViewModel вызывает `markRequested` на `SettingsEvent.PermissionRequested` до открытия системного диалога и считает `PermissionStatus` из факта выдачи, этого флага и `shouldShowRequestPermissionRationale`. UI свой флаг не хранит.
+
+Тексты ошибок во всех UiState идут как `UiText`. Фиксированные тексты задаются через `UiText.Res`, а `UiText.Raw` нужен только для строк, пришедших извне.
 
 Маршруты NavHost, объект `ShiftRoutes` в `:core:ui`:
 
