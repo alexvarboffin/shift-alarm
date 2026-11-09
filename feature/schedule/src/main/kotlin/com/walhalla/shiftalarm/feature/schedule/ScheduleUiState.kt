@@ -19,3 +19,11 @@ data class ScheduleUiState(
     val editor: PatternEditorUiState? = null,
     val errorMessage: UiText? = null,
 )
+
+sealed interface ScheduleEvent {
+    /** Clears errors and reads the schedule again. */
+    data object Retry : ScheduleEvent
+
+    /** Hides a failed write (save, activate). Load errors go away only through [Retry]. */
+    data object DismissError : ScheduleEvent
+}

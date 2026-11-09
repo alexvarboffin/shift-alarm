@@ -1,5 +1,6 @@
 package com.walhalla.shiftalarm.feature.calendar
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.walhalla.shiftalarm.core.model.AlarmException as StoredAlarmException
@@ -17,69 +18,79 @@ import com.walhalla.shiftalarm.core.model.ShiftType
 import com.walhalla.shiftalarm.core.model.ShiftTypeCatalog
 import com.walhalla.shiftalarm.core.model.ShiftTypeId
 import com.walhalla.shiftalarm.core.model.ShiftTypeOption
+import com.walhalla.shiftalarm.core.model.keepAlive
 import com.walhalla.shiftalarm.core.ui.UiText
+import java.time.Clock
 import java.time.LocalDate
 import java.time.YearMonth
-import java.time.ZoneId
 import java.time.ZonedDateTime
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class CalendarViewModel(
     private val shiftRepository: ShiftRepository,
     private val alarmRepository: AlarmRepository,
     private val widgetRefresher: HomeWidgetRefresher,
+    private val savedState: SavedStateHandle,
+    private val clock: Clock,
 ) : ViewModel() {
-    private val month = MutableStateFlow(YearMonth.now())
-    private val selectedDate = MutableStateFlow<LocalDate?>(null)
+    private val month = MutableStateFlow(restoreMonth(savedState, clock))
+    private val selectedDate = MutableStateFlow(restoreDay(savedState))
     private val commandError = MutableStateFlow<UiText?>(null)
+    private val readError = MutableStateFlow<UiText?>(null)
+    private val reload = MutableStateFlow(0)
 
     val uiState: StateFlow<CalendarUiState> = combine(
-        combine(month, selectedDate, commandError) { visibleMonth, selected, error ->
-            Triple(visibleMonth, selected, error)
+        combine(month, selectedDate, commandError, readError) { visibleMonth, selected, command, read ->
+            Cursor(visibleMonth, selected, command ?: read)
         },
-        shiftRepository.observeActivePattern(),
-        shiftRepository.observeOverrides(),
-        shiftRepository.observeShiftTypes(),
-        alarmRepository.observeExceptions(),
+        reload.flatMapLatest { shiftRepository.observeActivePattern().keepAlive(null) { readError.value = loadError() } },
+        reload.flatMapLatest { shiftRepository.observeOverrides().keepAlive(emptyList()) { readError.value = loadError() } },
+        reload.flatMapLatest { shiftRepository.observeShiftTypes().keepAlive(emptyList()) { readError.value = loadError() } },
+        reload.flatMapLatest { alarmRepository.observeExceptions().keepAlive(emptyList()) { readError.value = loadError() } },
     ) { cursor, pattern, overrides, storedTypes, exceptions ->
-        val (visibleMonth, selected, error) = cursor
         val options = ShiftTypeCatalog.options(storedTypes)
-        val days = buildDays(visibleMonth, pattern, overrides, exceptions)
-        val selectedCell = days.firstOrNull { it.date == selected }
+        val days = buildDays(cursor.month, pattern, overrides, exceptions)
+        val selectedCell = days.firstOrNull { it.date == cursor.selected }
         CalendarUiState(
             isLoading = false,
-            month = visibleMonth,
+            month = cursor.month,
             days = days,
             selected = selectedCell,
-            selectedDay = selected?.let { date ->
+            selectedDay = cursor.selected?.let { date ->
                 detail(date, pattern, overrides, exceptions, options)
             },
             hasActivePattern = pattern != null && pattern.cycle.isNotEmpty(),
-            errorMessage = error,
-        )
-    }.catch { error ->
-        emit(
-            CalendarUiState(
-                isLoading = false,
-                errorMessage = UiText.Raw(error.message ?: "Не удалось собрать месяц"),
-            ),
+            errorMessage = cursor.error,
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = CalendarUiState(),
+        initialValue = CalendarUiState(month = YearMonth.from(LocalDate.now(clock))),
+    )
+
+    private fun loadError(): UiText = UiText.Res(R.string.calendar_error_load)
+
+    private data class Cursor(
+        val month: YearMonth,
+        val selected: LocalDate?,
+        val error: UiText?,
     )
 
     fun showMonth(month: YearMonth) {
         this.month.value = month
+        savedState[KEY_MONTH] = month.toString()
         selectedDate.value = null
+        savedState[KEY_DAY] = null
     }
 
     fun showPreviousMonth() {
@@ -92,11 +103,12 @@ class CalendarViewModel(
 
     fun select(date: LocalDate) {
         selectedDate.value = date
+        savedState[KEY_DAY] = date.toString()
     }
 
     /** One-off replacement of the pattern slot. Same name as the feature ViewModel. */
     fun setOverride(date: LocalDate, shift: ShiftType) {
-        viewModelScope.launch {
+        command {
             shiftRepository.upsertOverride(DayOverride(date, shift))
             widgetRefresher.refresh()
             commandError.value = null
@@ -108,10 +120,10 @@ class CalendarViewModel(
             clearOverride(date)
             return
         }
-        viewModelScope.launch {
+        command {
             val type = ShiftTypeCatalog.find(shiftRepository.observeShiftTypes().first(), shiftTypeId)
             if (type == null) {
-                commandError.value = UiText.Raw("Неизвестный тип смены.")
+                commandError.value = UiText.Res(R.string.calendar_error_unknown_type)
             } else {
                 shiftRepository.upsertOverride(DayOverride(date, type))
                 widgetRefresher.refresh()
@@ -121,7 +133,7 @@ class CalendarViewModel(
     }
 
     fun clearOverride(date: LocalDate) {
-        viewModelScope.launch {
+        command {
             shiftRepository.deleteOverride(date)
             widgetRefresher.refresh()
             commandError.value = null
@@ -129,17 +141,42 @@ class CalendarViewModel(
     }
 
     fun setAlarmException(exception: StoredAlarmException) {
-        viewModelScope.launch {
+        command {
             alarmRepository.upsertException(exception)
             commandError.value = null
         }
     }
 
     fun clearAlarmException(date: LocalDate) {
-        viewModelScope.launch {
+        command {
             alarmRepository.deleteException(date)
             commandError.value = null
         }
+    }
+
+    /** Runs a write. A failure becomes a command error instead of crashing the screen. */
+    private fun command(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                commandError.value = UiText.Res(R.string.calendar_error_save)
+            }
+        }
+    }
+
+    /** Hides a failed write. A load error stays until [retry]. */
+    fun dismissError() {
+        commandError.value = null
+    }
+
+    /** "Retry": clears both errors and subscribes to the repositories again. */
+    fun retry() {
+        commandError.value = null
+        readError.value = null
+        reload.value += 1
     }
 
     fun onEvent(event: CalendarEvent) {
@@ -155,6 +192,8 @@ class CalendarViewModel(
             )
             is CalendarEvent.ClearAlarmException -> clearAlarmException(event.date)
             is CalendarEvent.ShowMonth -> showMonth(event.month)
+            CalendarEvent.Retry -> retry()
+            CalendarEvent.DismissError -> dismissError()
         }
     }
 
@@ -198,23 +237,20 @@ class CalendarViewModel(
     ): List<CalendarDayUi> {
         val overrideMap = overrides.associateBy { it.date }
         val exceptionMap = exceptions.associateBy { it.date }
+        if (pattern == null || pattern.cycle.isEmpty()) return emptyList()
         return (1..month.lengthOfMonth()).map { day ->
             val date = month.atDay(day)
-            if (pattern == null || pattern.cycle.isEmpty()) {
-                CalendarDayUi(date, null, null, null, null, false, null)
-            } else {
-                val resolved = ShiftCalculator.shiftFor(date, pattern, overrideMap)
-                val alarm = alarmInstant(date, resolved.shift, exceptionMap[date])
-                CalendarDayUi(
-                    date = date,
-                    shiftName = resolved.shift.name,
-                    shiftKind = resolved.shift.kind,
-                    colorLight = resolved.shift.colorLight,
-                    colorDark = resolved.shift.colorDark,
-                    hasOverride = resolved.source == ShiftSource.OVERRIDE,
-                    alarmLabel = alarm?.toLocalTime()?.let { "%02d:%02d".format(it.hour, it.minute) },
-                )
-            }
+            val resolved = ShiftCalculator.shiftFor(date, pattern, overrideMap)
+            val alarm = alarmInstant(date, resolved.shift, exceptionMap[date])
+            CalendarDayUi(
+                date = date,
+                shiftName = resolved.shift.name,
+                shiftKind = resolved.shift.kind,
+                colorLight = resolved.shift.colorLight,
+                colorDark = resolved.shift.colorDark,
+                hasOverride = resolved.source == ShiftSource.OVERRIDE,
+                alarmLabel = alarm?.toLocalTime()?.let { "%02d:%02d".format(it.hour, it.minute) },
+            )
         }
     }
 
@@ -223,7 +259,7 @@ class CalendarViewModel(
         shift: ShiftType?,
         exception: StoredAlarmException?,
     ): ZonedDateTime? {
-        val zone = ZoneId.systemDefault()
+        val zone = clock.zone
         val custom = exception?.customTime
         return when {
             exception?.enabled == false -> null
@@ -233,6 +269,16 @@ class CalendarViewModel(
         }
     }
 }
+
+internal const val KEY_MONTH: String = "calendar.month"
+internal const val KEY_DAY: String = "calendar.day"
+
+internal fun restoreMonth(savedState: SavedStateHandle, clock: Clock): YearMonth =
+    savedState.get<String>(KEY_MONTH)?.let { raw -> runCatching { YearMonth.parse(raw) }.getOrNull() }
+        ?: YearMonth.from(LocalDate.now(clock))
+
+internal fun restoreDay(savedState: SavedStateHandle): LocalDate? =
+    savedState.get<String>(KEY_DAY)?.let { raw -> runCatching { LocalDate.parse(raw) }.getOrNull() }
 
 internal fun shortLabel(kind: ShiftKind?, name: String?): String = when {
     name == BuiltinShifts.duty.name -> "С"

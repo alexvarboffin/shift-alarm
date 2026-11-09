@@ -1,5 +1,6 @@
 package com.walhalla.shiftalarm.core.alarm
 
+import java.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,8 +15,9 @@ val ApplicationScope: Qualifier = named("ApplicationScope")
 
 val alarmModule = module {
     single<CoroutineScope>(ApplicationScope) { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
+    single<Clock> { Clock.systemDefaultZone() }
     single { DeviceProtectedAlarmStore(androidContext()) }
-    single { AlarmManagerAlarmScheduler(androidContext(), get(), get(), get(), get()) } bind AlarmScheduler::class
+    single { AlarmManagerAlarmScheduler(androidContext(), get(), get(), get(), get(), get()) } bind AlarmScheduler::class
     single { ServiceRingingController(androidContext()) } bind RingingController::class
-    single { AlarmRescheduleWatcher(get(), get(), get(), get(), get(ApplicationScope)) }
+    single { AlarmRescheduleWatcher(get(), get(), get(), get(), get(), get(ApplicationScope)) }
 }

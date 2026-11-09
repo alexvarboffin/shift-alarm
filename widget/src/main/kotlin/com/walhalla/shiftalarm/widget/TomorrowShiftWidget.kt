@@ -25,6 +25,8 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.walhalla.shiftalarm.core.model.HomeWidgetRefresher
 import com.walhalla.shiftalarm.core.model.ShiftRepository
+import java.time.Clock
+import java.time.LocalDate
 import kotlinx.coroutines.flow.first
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.component.KoinComponent
@@ -35,10 +37,12 @@ import org.koin.dsl.module
 class TomorrowShiftWidget : GlanceAppWidget(), KoinComponent {
     private val repository: ShiftRepository by inject()
 
+    private val clock: Clock by inject()
+
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val pattern = repository.observeActivePattern().first()
         val overrides = repository.observeOverrides().first().associateBy { it.date }
-        val label = tomorrowLabel(pattern, overrides)
+        val label = tomorrowLabel(pattern, overrides, LocalDate.now(clock))
         val openApp = actionStartActivity(openAppIntent(context))
         provideContent {
             Column(

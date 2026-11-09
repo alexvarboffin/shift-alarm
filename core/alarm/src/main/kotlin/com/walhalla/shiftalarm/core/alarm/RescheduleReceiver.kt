@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import java.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
@@ -21,6 +22,8 @@ import org.koin.core.component.inject
 class RescheduleReceiver : BroadcastReceiver(), KoinComponent {
     private val scheduler: AlarmScheduler by inject()
 
+    private val clock: Clock by inject()
+
     private val scope: CoroutineScope by inject(ApplicationScope)
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -32,7 +35,7 @@ class RescheduleReceiver : BroadcastReceiver(), KoinComponent {
         val pending = goAsync()
         scope.launch {
             try {
-                scheduler.scheduleNext()
+                scheduler.scheduleNext(clock.millis())
             } catch (error: Exception) {
                 Log.e(TAG, "Reschedule failed for $action", error)
             } finally {

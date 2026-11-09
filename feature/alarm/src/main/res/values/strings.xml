@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ringing_error_empty">Нет данных будильника</string>
+</resources>

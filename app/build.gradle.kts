@@ -52,6 +52,10 @@ android {
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
     }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -80,4 +84,6 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.koin.test)
     testImplementation(libs.koin.test.junit4)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.kotlinx.coroutines.android)
 }

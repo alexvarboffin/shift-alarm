@@ -28,5 +28,6 @@ dependencies {
     debugImplementation(libs.androidx.glance.appwidget.preview)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.koin.android)
+    testImplementation(libs.junit)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 }
