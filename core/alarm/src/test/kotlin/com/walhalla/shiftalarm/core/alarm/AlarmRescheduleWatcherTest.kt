@@ -4,6 +4,7 @@ import com.walhalla.shiftalarm.core.model.AlarmException
 import com.walhalla.shiftalarm.core.model.AlarmRepository
 import com.walhalla.shiftalarm.core.model.BuiltinShifts
 import com.walhalla.shiftalarm.core.model.DayOverride
+import com.walhalla.shiftalarm.core.model.AppPermission
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftRepository
@@ -96,6 +97,10 @@ private class WatchAlarmRepository : AlarmRepository {
 }
 
 private class WatchSettingsRepository : SettingsRepository {
+    override val requestedPermissions: Flow<Set<AppPermission>> = MutableStateFlow(emptySet())
+
+    override suspend fun markRequested(permission: AppPermission) = Unit
+
     override val settings: Flow<UserSettings> = MutableStateFlow(UserSettings())
 
     override suspend fun setSnoozeMinutes(minutes: Int) = Unit

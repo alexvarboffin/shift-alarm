@@ -6,6 +6,7 @@ import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftRepository
 import com.walhalla.shiftalarm.core.model.ShiftTemplates
 import com.walhalla.shiftalarm.core.model.ShiftType
+import com.walhalla.shiftalarm.core.model.ShiftTypeId
 import com.walhalla.shiftalarm.core.ui.UiText
 import java.time.Clock
 import java.time.LocalDate
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -52,6 +54,68 @@ class ScheduleViewModelTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun retryClearsReadErrorAndSubscribesAgain() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val repository = FlakyShiftRepository()
+        val viewModel = ScheduleViewModel(
+            repository = repository,
+            widgetRefresher = object : HomeWidgetRefresher {
+                override suspend fun refresh() = Unit
+            },
+            clock = Clock.fixed(LocalDate.of(2026, 4, 1).atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC),
+            scopeOverride = scope,
+        )
+        val job = scope.launch { viewModel.uiState.collect {} }
+        try {
+            assertEquals(UiText.Res(R.string.schedule_error_read), viewModel.uiState.value.errorMessage)
+
+            viewModel.retry()
+
+            assertNull(viewModel.uiState.value.errorMessage)
+            assertEquals(2, repository.activeReads)
+        } finally {
+            job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun leadOutOfRangeIsResourceError() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val viewModel = ScheduleViewModel(
+            repository = FlakyShiftRepository(),
+            widgetRefresher = object : HomeWidgetRefresher {
+                override suspend fun refresh() = Unit
+            },
+            clock = Clock.fixed(LocalDate.of(2026, 4, 1).atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC),
+            scopeOverride = scope,
+        )
+        val job = scope.launch { viewModel.uiState.collect {} }
+        try {
+            val day = ShiftTypeId("day")
+            viewModel.openCustomEditor()
+            viewModel.onEditorEvent(PatternEditorEvent.AddSlot(day))
+            viewModel.onEditorEvent(PatternEditorEvent.SetLeadMinutes(day, 2000))
+
+            assertEquals(
+                UiText.Res(R.string.schedule_error_lead_range, listOf(0, 1440)),
+                viewModel.uiState.value.editor?.errorMessage,
+            )
+        } finally {
+            job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun slotCountErrorsAreResources() {
+        assertEquals(UiText.Res(R.string.schedule_error_slots_min), slotCountError(0))
+        assertNull(slotCountError(1))
+        assertNull(slotCountError(31))
+        assertEquals(UiText.Res(R.string.schedule_error_slots_max, listOf(31)), slotCountError(32))
+    }
 }
 
 private class FlakyShiftRepository : ShiftRepository {
@@ -59,8 +123,14 @@ private class FlakyShiftRepository : ShiftRepository {
 
     override fun observePatterns(): Flow<List<ShiftPattern>> = patterns
 
+    var activeReads = 0
+        private set
+
+    /** First subscription fails, later ones work. */
     override fun observeActivePattern(): Flow<ShiftPattern?> = flow {
-        throw IllegalStateException("secret")
+        activeReads++
+        if (activeReads == 1) throw IllegalStateException("secret")
+        emit(null)
     }
 
     override fun observeShiftTypes(): Flow<List<ShiftType>> =

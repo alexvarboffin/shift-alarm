@@ -30,4 +30,7 @@ sealed interface CalendarEvent {
     data class ClearAlarmException(val date: LocalDate) : CalendarEvent
 
     data class ShowMonth(val month: YearMonth) : CalendarEvent
+
+    /** Clears the error and reads the month again. */
+    data object Retry : CalendarEvent
 }

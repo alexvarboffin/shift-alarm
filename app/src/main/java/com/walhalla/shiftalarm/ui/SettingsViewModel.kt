@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.walhalla.shiftalarm.R
 import com.walhalla.shiftalarm.core.alarm.AlarmScheduler
+import com.walhalla.shiftalarm.core.model.AppPermission
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.UserSettings
 import com.walhalla.shiftalarm.core.model.keepAlive
@@ -17,15 +18,19 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Clock
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class SettingsViewModel internal constructor(
     private val settingsRepository: SettingsRepository,
@@ -35,8 +40,10 @@ class SettingsViewModel internal constructor(
     scopeOverride: CoroutineScope?,
 ) : ViewModel() {
     private val workScope = scopeOverride ?: viewModelScope
-    private val permissions = MutableStateFlow(readPermissions())
+    private val grants = MutableStateFlow(readGrants())
+    private val notificationRationale = MutableStateFlow(false)
     private val readError = MutableStateFlow<UiText?>(null)
+    private val reload = MutableStateFlow(0)
 
     @Inject
     constructor(
@@ -46,33 +53,47 @@ class SettingsViewModel internal constructor(
         clock: Clock,
     ) : this(settingsRepository, alarmScheduler, context, clock, null)
 
+    private val settings = reload.flatMapLatest {
+        settingsRepository.settings.keepAlive(UserSettings()) { readError.value = readFailure() }
+    }
+
+    private val requested = reload.flatMapLatest {
+        settingsRepository.requestedPermissions.keepAlive(emptySet()) { readError.value = readFailure() }
+    }
+
     val uiState: StateFlow<SettingsUiState> = combine(
-        settingsRepository.settings.keepAlive(UserSettings()) {
-            readError.value = UiText.Res(R.string.settings_error_read)
-        },
-        permissions,
+        settings,
+        requested,
+        grants,
+        notificationRationale,
         readError,
-    ) { settings, permission, error ->
+    ) { prefs, asked, grant, rationale, error ->
+        val base = SettingsUiState(
+            isLoading = false,
+            selectedSnooze = prefs.snoozeMinutes,
+            vibrationEnabled = prefs.vibrationEnabled,
+            useDynamicColor = prefs.useDynamicColor,
+            errorMessage = error,
+        )
         if (error != null) {
-            SettingsUiState(
-                isLoading = false,
-                selectedSnooze = settings.snoozeMinutes,
-                vibrationEnabled = settings.vibrationEnabled,
-                useDynamicColor = settings.useDynamicColor,
-                notificationPermission = NotificationPermission.Denied,
-                exactAlarm = false,
-                fullScreenIntent = false,
-                errorMessage = error,
-            )
+            base
         } else {
-            SettingsUiState(
-                isLoading = false,
-                selectedSnooze = settings.snoozeMinutes,
-                vibrationEnabled = settings.vibrationEnabled,
-                useDynamicColor = settings.useDynamicColor,
-                notificationPermission = permission.notifications,
-                exactAlarm = permission.exact,
-                fullScreenIntent = permission.fullScreen,
+            base.copy(
+                notificationStatus = permissionStatus(
+                    granted = grant.notifications,
+                    requested = AppPermission.NOTIFICATIONS in asked,
+                    rationale = rationale,
+                ),
+                exactAlarmStatus = permissionStatus(
+                    granted = grant.exact,
+                    requested = AppPermission.EXACT_ALARM in asked,
+                    rationale = false,
+                ),
+                fullScreenIntentStatus = permissionStatus(
+                    granted = grant.fullScreen,
+                    requested = AppPermission.FULL_SCREEN_INTENT in asked,
+                    rationale = false,
+                ),
             )
         }
     }.stateIn(
@@ -81,8 +102,15 @@ class SettingsViewModel internal constructor(
         initialValue = SettingsUiState(),
     )
 
-    fun refreshPermissions() {
-        permissions.update { readPermissions() }
+    private fun readFailure(): UiText = UiText.Res(R.string.settings_error_read)
+
+    /**
+     * Re-reads grants, for example on resume. Pass [notificationRationale] when the
+     * Activity knows it; null keeps the last value.
+     */
+    fun refreshPermissions(notificationRationale: Boolean? = null) {
+        if (notificationRationale != null) this.notificationRationale.value = notificationRationale
+        grants.update { readGrants() }
         workScope.launch { alarmScheduler.scheduleNext(clock.millis()) }
     }
 
@@ -95,6 +123,22 @@ class SettingsViewModel internal constructor(
             is SettingsEvent.SetUseDynamicColor -> {
                 workScope.launch { settingsRepository.setUseDynamicColor(event.enabled) }
             }
+            is SettingsEvent.PermissionRequested -> {
+                workScope.launch {
+                    try {
+                        settingsRepository.markRequested(event.permission)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        readError.value = UiText.Res(R.string.settings_error_write)
+                    }
+                }
+            }
+            SettingsEvent.Retry -> {
+                readError.value = null
+                reload.update { it + 1 }
+                refreshPermissions()
+            }
         }
     }
 
@@ -106,25 +150,22 @@ class SettingsViewModel internal constructor(
         workScope.launch { settingsRepository.setVibrationEnabled(enabled) }
     }
 
-    private fun readPermissions(): PermissionSnapshot = PermissionSnapshot(
-        notifications = notificationPermission(),
+    private fun readGrants(): Grants = Grants(
+        notifications = notificationsGranted(),
         exact = alarmScheduler.canScheduleExactAlarms(),
         fullScreen = alarmScheduler.canUseFullScreenIntent(),
     )
 
-    private fun notificationPermission(): NotificationPermission {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            return NotificationPermission.NotRequired
-        }
-        val granted = ContextCompat.checkSelfPermission(
+    private fun notificationsGranted(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+        return ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
-        return if (granted) NotificationPermission.Granted else NotificationPermission.Denied
     }
 
-    private data class PermissionSnapshot(
-        val notifications: NotificationPermission,
+    private data class Grants(
+        val notifications: Boolean,
         val exact: Boolean,
         val fullScreen: Boolean,
     )

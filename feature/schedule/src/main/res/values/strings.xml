@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="schedule_error_read">Не удалось прочитать график</string>
+    <string name="schedule_error_slots_min">В цикле должен быть хотя бы один слот.</string>
+    <string name="schedule_error_slots_max">В цикле не больше %1$d слотов.</string>
+    <string name="schedule_error_lead_range">Упреждение от %1$d до %2$d минут.</string>
+    <string name="schedule_error_unknown_type">Неизвестный тип смены.</string>
 </resources>

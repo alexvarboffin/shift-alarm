@@ -26,14 +26,17 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZonedDateTime
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
     private val shiftRepository: ShiftRepository,
@@ -46,15 +49,16 @@ class CalendarViewModel @Inject constructor(
     private val selectedDate = MutableStateFlow(restoreDay(savedState))
     private val commandError = MutableStateFlow<UiText?>(null)
     private val readError = MutableStateFlow<UiText?>(null)
+    private val reload = MutableStateFlow(0)
 
     val uiState: StateFlow<CalendarUiState> = combine(
         combine(month, selectedDate, commandError, readError) { visibleMonth, selected, command, read ->
             Cursor(visibleMonth, selected, command ?: read)
         },
-        shiftRepository.observeActivePattern().keepAlive(null) { readError.value = loadError() },
-        shiftRepository.observeOverrides().keepAlive(emptyList()) { readError.value = loadError() },
-        shiftRepository.observeShiftTypes().keepAlive(emptyList()) { readError.value = loadError() },
-        alarmRepository.observeExceptions().keepAlive(emptyList()) { readError.value = loadError() },
+        reload.flatMapLatest { shiftRepository.observeActivePattern().keepAlive(null) { readError.value = loadError() } },
+        reload.flatMapLatest { shiftRepository.observeOverrides().keepAlive(emptyList()) { readError.value = loadError() } },
+        reload.flatMapLatest { shiftRepository.observeShiftTypes().keepAlive(emptyList()) { readError.value = loadError() } },
+        reload.flatMapLatest { alarmRepository.observeExceptions().keepAlive(emptyList()) { readError.value = loadError() } },
     ) { cursor, pattern, overrides, storedTypes, exceptions ->
         val options = ShiftTypeCatalog.options(storedTypes)
         val days = buildDays(cursor.month, pattern, overrides, exceptions)
@@ -152,6 +156,13 @@ class CalendarViewModel @Inject constructor(
         }
     }
 
+    /** "Retry": clears both errors and subscribes to the repositories again. */
+    fun retry() {
+        commandError.value = null
+        readError.value = null
+        reload.value += 1
+    }
+
     fun onEvent(event: CalendarEvent) {
         when (event) {
             is CalendarEvent.SetOverride -> setOverride(event.date, event.shiftTypeId)
@@ -165,6 +176,7 @@ class CalendarViewModel @Inject constructor(
             )
             is CalendarEvent.ClearAlarmException -> clearAlarmException(event.date)
             is CalendarEvent.ShowMonth -> showMonth(event.month)
+            CalendarEvent.Retry -> retry()
         }
     }
 

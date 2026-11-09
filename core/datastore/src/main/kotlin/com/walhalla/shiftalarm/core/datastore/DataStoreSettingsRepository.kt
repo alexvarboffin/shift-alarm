@@ -7,6 +7,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
+import com.walhalla.shiftalarm.core.model.AppPermission
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.UserSettings
 import javax.inject.Inject
@@ -53,11 +55,26 @@ class DataStoreSettingsRepository @Inject constructor(
         }
     }
 
+    override val requestedPermissions: Flow<Set<AppPermission>> = dataStore.data.map { prefs ->
+        prefs[Keys.REQUESTED_PERMISSIONS].orEmpty().toPermissions()
+    }
+
+    override suspend fun markRequested(permission: AppPermission) {
+        dataStore.edit { prefs ->
+            prefs[Keys.REQUESTED_PERMISSIONS] = prefs[Keys.REQUESTED_PERMISSIONS].orEmpty() + permission.name
+        }
+    }
+
     private object Keys {
         val SNOOZE_MINUTES = intPreferencesKey("snooze_minutes")
         val VIBRATION = booleanPreferencesKey("vibration_enabled")
         val DYNAMIC_COLOR = booleanPreferencesKey("use_dynamic_color")
         val SNOOZE_EPOCH = longPreferencesKey("pending_snooze_epoch_millis")
         val SNOOZE_NAME = stringPreferencesKey("pending_snooze_shift_name")
+        val REQUESTED_PERMISSIONS = stringSetPreferencesKey("requested_permissions")
     }
 }
+
+/** Unknown names (from a newer or older build) are skipped, not thrown. */
+internal fun Set<String>.toPermissions(): Set<AppPermission> =
+    mapNotNullTo(mutableSetOf()) { name -> AppPermission.entries.firstOrNull { it.name == name } }

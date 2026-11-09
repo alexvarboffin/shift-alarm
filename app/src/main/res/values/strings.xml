@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">Будильник смен</string>
     <string name="settings_error_read">Не удалось прочитать настройки</string>
+    <string name="settings_error_write">Не удалось сохранить настройки</string>
 </resources>

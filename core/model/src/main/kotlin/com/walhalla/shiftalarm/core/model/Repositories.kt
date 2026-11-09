@@ -51,6 +51,12 @@ interface SettingsRepository {
     suspend fun setUseDynamicColor(enabled: Boolean)
 
     suspend fun setPendingSnooze(epochMillis: Long?, shiftName: String)
+
+    /** Permissions the app has already asked for at least once. Survives process death. */
+    val requestedPermissions: Flow<Set<AppPermission>>
+
+    /** Call before showing the system dialog or settings screen for [permission]. */
+    suspend fun markRequested(permission: AppPermission)
 }
 
 /** Asks the home-screen widget to redraw. Implementation lives in `:widget`. */

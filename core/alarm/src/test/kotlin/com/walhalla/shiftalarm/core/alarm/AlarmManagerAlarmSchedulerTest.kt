@@ -8,6 +8,7 @@ import android.app.NotificationManager
 import com.walhalla.shiftalarm.core.model.AlarmException
 import com.walhalla.shiftalarm.core.model.AlarmRepository
 import com.walhalla.shiftalarm.core.model.DayOverride
+import com.walhalla.shiftalarm.core.model.AppPermission
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftRepository
@@ -135,6 +136,10 @@ private class FakeAlarmRepository : AlarmRepository {
 }
 
 private class FakeSettingsRepository : SettingsRepository {
+    override val requestedPermissions: Flow<Set<AppPermission>> = MutableStateFlow(emptySet())
+
+    override suspend fun markRequested(permission: AppPermission) = Unit
+
     private val current = MutableStateFlow(UserSettings())
     override val settings: Flow<UserSettings> = current
 
