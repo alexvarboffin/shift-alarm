@@ -1,5 +1,6 @@
 package com.walhalla.shiftalarm.ui
 
+import android.app.Application
 import android.app.NotificationManager
 import com.walhalla.shiftalarm.R
 import com.walhalla.shiftalarm.core.alarm.AlarmScheduler
@@ -31,7 +32,8 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28])
+// Plain Application: ShiftAlarmApp would start Koin again for every test.
+@Config(sdk = [28], application = Application::class)
 class SettingsViewModelTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
 
