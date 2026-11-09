@@ -190,7 +190,8 @@ data class ScheduleUiState(
     val patterns: List<PatternSummary> = emptyList(),
     val activePatternId: String? = null,
     val editor: PatternEditorUiState? = null,
-    val errorMessage: UiText? = null,
+    val loadError: UiText? = null,    // чтение данных упало; убирает только Retry
+    val commandError: UiText? = null, // запись (сохранить, подмена, исключение) упала; убирает DismissError или Retry
 )
 
 data class CalendarUiState(
@@ -200,7 +201,8 @@ data class CalendarUiState(
     val selected: CalendarDayUi? = null,
     val selectedDay: SelectedDayDetail? = null,
     val hasActivePattern: Boolean = false,
-    val errorMessage: UiText? = null,
+    val loadError: UiText? = null,    // чтение данных упало; убирает только Retry
+    val commandError: UiText? = null, // запись (сохранить, подмена, исключение) упала; убирает DismissError или Retry
 )
 
 data class SettingsUiState(
@@ -229,6 +231,10 @@ sealed interface SettingsEvent {
     data object Retry : SettingsEvent
 }
 
+// В ScheduleEvent и CalendarEvent, кроме событий экрана:
+//   data object Retry        — перечитать данные, очищает loadError и commandError
+//   data object DismissError — очищает только commandError
+
 sealed interface RingingUiState {
     data object Loading : RingingUiState
     data class Ringing(
@@ -243,6 +249,12 @@ sealed interface RingingUiState {
 Разрешения. `enum class AppPermission { NOTIFICATIONS, EXACT_ALARM, FULL_SCREEN_INTENT }` лежит в `:core:model`. `SettingsRepository` хранит, какие разрешения уже запрашивались: `requestedPermissions: Flow<Set<AppPermission>>` и `suspend fun markRequested(permission)`, ключ DataStore `requested_permissions`. ViewModel вызывает `markRequested` на `SettingsEvent.PermissionRequested` до открытия системного диалога и считает `PermissionStatus` из факта выдачи, этого флага и `shouldShowRequestPermissionRationale`. UI свой флаг не хранит.
 
 `NOT_REQUIRED`: на этой версии Android разрешение не запрашивается во время работы. Уведомления ниже API 33, `EXACT_ALARM` ниже API 31, `FULL_SCREEN_INTENT` ниже API 34. ViewModel отдаёт `NOT_REQUIRED` и не подменяет его на `GRANTED`. `val PermissionStatus.isSatisfied get() = this == GRANTED || this == NOT_REQUIRED`. UI показывает такую карточку как «не требуется», без кнопки, и `PermissionRequested` для неё не шлёт.
+
+Уведомления проверяются глубже runtime-разрешения, на всех API. Если разрешение выдано (или `NOT_REQUIRED` ниже API 33), но `NotificationManagerCompat.areNotificationsEnabled()` = false, или выключен текущий канал звонка (`getNotificationChannelCompat(id)?.importance == IMPORTANCE_NONE`, где `id` — `shift_alarm_ring_vibrate` или `shift_alarm_ring_quiet` по настройке вибрации; `:core:alarm` отдаёт его через публичный `RingingChannels.idFor(vibration)`, константы перестают быть private), статус `DENIED_PERMANENTLY`. Кнопка открывает `Settings.ACTION_APP_NOTIFICATION_SETTINGS`, а при выключенном канале `ACTION_CHANNEL_NOTIFICATION_SETTINGS` с id канала. Статус пересчитывается на ON_RESUME. Для `FULL_SCREEN_INTENT` ниже API 34 остаётся просто `NOT_REQUIRED`.
+
+Ошибки Schedule и Calendar. `loadError` показывается как состояние экрана с кнопкой «Повторить» (`Retry`), закрыть его нельзя. `commandError` показывается баннером с «Повторить» и «Закрыть» (`DismissError`). Если есть оба, на экране `loadError`. UI не зовёт `viewModel.retry()` напрямую, только `onEvent(...Retry)`.
+
+Код этого контракта (`AppPermission`, `PermissionStatus`, `requestedPermissions`, `loadError`/`commandError`) реализует T12, [PR #4](https://github.com/alexvarboffin/shift-alarm/pull/4). До его мёржа `main` отстаёт от этого раздела, сверять документ с кодом нужно по ветке T12.
 
 Тексты ошибок во всех UiState идут как `UiText`. Фиксированные тексты задаются через `UiText.Res`, а `UiText.Raw` нужен только для строк, пришедших извне.
 
@@ -264,7 +276,7 @@ sealed interface RingingUiState {
 
 1. `AlarmRescheduleWatcher` — единственный владелец пересчёта после записи. Его стартует `ShiftAlarmApp`. Он смотрит потоки паттернов, активного графика, подмен, исключений и настроек. `saveAndActivate`, `setOverride`, `clearOverride`, `setAlarmException` и `clearAlarmException` меняют эти потоки, watcher вызывает `scheduleNext(now)`, а тот заново пишет device-protected снимок. Экраны сами `scheduleNext` не зовут. Те же пять системных action по-прежнему приходят в `RescheduleReceiver`, и он тоже вызывает `scheduleNext(now)`.
 2. `scheduleNext(now)` читает активный паттерн, подмены дней, исключения будильника и маркер snooze. Если snooze строго позже `now` — ставится он. Иначе `NextAlarmPlanner.earliest` ищет ближайший момент. Нет кандидата — pending intent отменяется. В AlarmManager всегда один будильник.
-3. Если `canScheduleExactAlarms()` истинно, ставится `setAlarmClock`. Если ложно или `setAlarmClock` бросает `SecurityException`, ставится неточный запасной: сначала `setAndAllowWhileIdle`, при ошибке `setWindow` на 15 минут. Рядом показывается heads-up, что точные будильники выключены, и тап ведёт в системный запрос разрешения. Когда точные снова доступны, это уведомление снимается.
+3. Если `canScheduleExactAlarms()` истинно, ставится `setAlarmClock`. Если ложно или `setAlarmClock` бросает `SecurityException`, ставится неточный запасной: сначала `setAndAllowWhileIdle`, при ошибке `setWindow` на 15 минут. Рядом показывается heads-up, что точные будильники выключены. Тап открывает приложение явным intent, а системный экран точных будильников открывается уже из настроек обычным `startActivity`. Когда точные снова доступны, это уведомление снимается.
 4. Срабатывание приходит в `AlarmFireReceiver` (явный `PendingIntent`, `FLAG_IMMUTABLE`, `exported=false`). Он поднимает `RingingService` (`startForeground` с типом `specialUse`) и сразу вызывает `scheduleNext(now = время этого срабатывания)`, чтобы следующий слот встал, даже если пользователь не нажмёт «Стоп». Момент строго после `now`, поэтому тот же звонок не ставится ещё раз.
 5. Сервис берёт `PARTIAL_WAKE_LOCK` (потолок 10 минут) и системный звук будильника. Если `canUseFullScreenIntent()` истинно (ниже API 34 это всегда так), уведомление категории `alarm` открывает `RingingActivity` через full-screen intent. Если на API 34+ разрешение снято, full-screen intent не ставится: то же уведомление уходит как heads-up (`PRIORITY_MAX`, канал `IMPORTANCE_HIGH`). Вибрация выбирает один из двух каналов.
 6. «Стоп» вызывает `dismiss()`: маркер snooze стирается, снова считается следующая смена. «Отложить» пишет snooze в DataStore и заменяет единственный pending alarm. И активность, и кнопки уведомления идут в один `RingingService`.
@@ -330,14 +342,14 @@ Glance App Widget, подпись в списке виджетов: «завтр
 Для UI и feature:
 
 - Календарь. Методы ViewModel, как в feature PR: `setOverride`, `clearOverride`, `setAlarmException`, `clearAlarmException`, `showMonth`. Те же имена у `CalendarEvent` (`SetOverride(date, shiftTypeId?)` и остальные). `shiftTypeId == null` снимает подмену. `CalendarUiState.selectedDay` — деталь выбранного дня.
-- `errorMessage` во всех UiState — `UiText?`. Единственный тип в `:core:ui`: sealed `Res(@StringRes id, args)` и `Raw(String)`. `Raw` оставлен для уже готового текста (проверка ввода, `Throwable.message`); обычные строки экрана — `Res`. `resolve(context)` и `@Composable resolve()` дают строку. `String.asUiText()` и `@StringRes Int.asUiText()` собирают значение. В PR фич своего `UiText` не было.
+- Тексты ошибок во всех UiState (`errorMessage`, `loadError`, `commandError`) — `UiText?`. Единственный тип в `:core:ui`: sealed `Res(@StringRes id, args)` и `Raw(String)`. `Raw` оставлен для уже готового текста (проверка ввода, `Throwable.message`); обычные строки экрана — `Res`. `resolve(context)` и `@Composable resolve()` дают строку. `String.asUiText()` и `@StringRes Int.asUiText()` собирают значение. В PR фич своего `UiText` не было.
 - Свой график остаётся в v1. `ScheduleUiState.editor: PatternEditorUiState?` (имя, дата старта, `slots: List<ShiftTypeId>`, `availableTypes`, текст проверки). События: `AddSlot`, `RemoveSlot`, `MoveSlot`, `SetName`, `SetStartDate`, `SetStartTime`, `SetLeadMinutes`, `Save`, `Cancel`. Длина цикла 1..31, это `PatternLimits`. `applyTemplate(CUSTOM)` открывает черновик, `Save` кладёт паттерн в Room и делает его активным, `Cancel` выбрасывает черновик без записи. `SetStartTime` / `SetLeadMinutes` меняют начало и упреждение типа в черновике.
 - Настройки. `snoozeOptions = [5, 10, 15, 20, 30]`, выбранное значение — `selectedSnooze`. Событие `SettingsEvent.SelectSnooze`. Минуты вне списка отбрасываются.
 - Динамический цвет. `UserSettings.useDynamicColor` в DataStore, ключ `use_dynamic_color`, по умолчанию `true`. `ShiftAlarmTheme(useDynamicColor)` подключает `dynamicLightColorScheme` / `dynamicDarkColorScheme` только на API 31+. Ниже остаётся своя палитра. Событие `SettingsEvent.SetUseDynamicColor`.
 - Будильник. `RingingUiState` — sealed: `Loading`, `Ringing(...)`, `Error(errorMessage: UiText)`. Пока нет имени смены, состояние `Error`.
 - `ShiftRepository.saveAndActivate` пишет цикл и единственный активный флаг одной Room-транзакцией.
 - Direct boot. `RescheduleReceiver`, `AlarmFireReceiver` и `RingingService` — `directBootAware`. До разблокировки будильник ставит `LOCKED_BOOT_COMPLETED` из снимка. После разблокировки тот же пересчёт делает `BOOT_COMPLETED`. Снимок активного графика, исключений и следующего триггера лежит в DataStore на `createDeviceProtectedStorageContext`. Если своего графика в Room ещё нет, снимок переносится туда, затем снимок обновляется из основного хранилища.
-- Настройки. `notificationPermission`: `Granted` / `Denied` / `NotRequired` (ниже API 33). Флаги возможностей: `exactAlarm`, `fullScreenIntent`.
+- Настройки. Статусы `notificationStatus`, `exactAlarmStatus`, `fullScreenIntentStatus` типа `PermissionStatus`, флаги `exactAlarm` и `fullScreenIntent` выводятся через `isSatisfied` (контракт выше). Старый `notificationPermission: Granted / Denied / NotRequired` заменён.
 - Robolectric 4.17 (Maven Central, stable, SDK 36 есть в `DefaultSdkProvider`) подключён как `testImplementation`. Один тест `ShadowAlarmManager` проверяет, что `scheduleNext` вызывает `setAlarmClock`.
 - Glance preview 1.2.0 совместим с compileSdk 36 и подключён только в debug `:widget` (`glance-preview`, `glance-appwidget-preview`). Отдельный `@Preview` виджета в этой задаче не добавлялся.
 - Общий идентификатор типа для контрактов — value class `ShiftTypeId`. Список типов для выбора: встроенные плюс сохранённые, `ShiftRepository.observeShiftTypes()`.
