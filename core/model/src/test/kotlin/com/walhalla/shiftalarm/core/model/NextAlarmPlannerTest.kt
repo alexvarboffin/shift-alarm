@@ -242,7 +242,7 @@ class NextTriggerSelectorTest {
     fun noAlarmBeforeThePatternStartDate() {
         val start = LocalDate.of(2026, 6, 10)
         val pattern = ShiftTemplates.twoTwo(start)
-        val now = ZonedDateTime.of(LocalDateTime.of(2026, 6, 1, 12, 0), utc)
+        val now = ZonedDateTime.of(LocalDateTime.of(2026, 6, 1, 12, 0), ZoneOffset.UTC)
 
         val planned = NextAlarmPlanner.earliest(now, pattern)
 
@@ -254,7 +254,7 @@ class NextTriggerSelectorTest {
     fun farBeforeStartStillFindsTheFirstShift() {
         val start = LocalDate.of(2026, 9, 1)
         val pattern = ShiftTemplates.twoTwo(start)
-        val now = ZonedDateTime.of(LocalDateTime.of(2026, 6, 1, 12, 0), utc)
+        val now = ZonedDateTime.of(LocalDateTime.of(2026, 6, 1, 12, 0), ZoneOffset.UTC)
 
         assertEquals(start, NextAlarmPlanner.earliest(now, pattern)?.date)
     }
