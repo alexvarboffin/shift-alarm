@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
-import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -44,6 +43,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,24 +77,22 @@ fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
     val context = LocalContext.current
     val activity = LocalActivity.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    // Status before the dialog and launch time. PermissionRequested goes out only after a real
-    // answer: closing the dialog without answering must not turn NOT_ASKED into DENIED_PERMANENTLY.
-    var pendingNotification by remember { mutableStateOf<Pair<PermissionStatus, Long>?>(null) }
+    // PermissionRequested goes out only after a real answer, judged by rationale before and after
+    // the request (no timing). Denied with no rationale before or after is ambiguous: the dialog
+    // was closed without an answer, or the system denied silently ("never ask again"). The first
+    // such result keeps NOT_ASKED; the second one is a real answer, so the card moves to settings.
+    var rationaleBefore by rememberSaveable { mutableStateOf(false) }
+    var ambiguousDenials by rememberSaveable { mutableIntStateOf(0) }
     val notificationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        val rationale = notificationRationale(activity)
-        val pending = pendingNotification
-        pendingNotification = null
-        // The system answers without a dialog in a few ms when the user already chose "never ask".
-        val answeredBySystem = pending != null &&
-            SystemClock.elapsedRealtime() - pending.second < SYSTEM_DENY_WINDOW_MS
-        val answered = granted || rationale == true || answeredBySystem ||
-            pending?.first == PermissionStatus.CAN_ASK_AGAIN
-        if (answered) {
+        val rationaleAfter = notificationRationale(activity)
+        val ambiguous = !granted && rationaleAfter != true && !rationaleBefore
+        if (ambiguous) ambiguousDenials++ else ambiguousDenials = 0
+        if (!ambiguous || ambiguousDenials >= 2) {
             viewModel.onEvent(SettingsEvent.PermissionRequested(AppPermission.NOTIFICATIONS))
         }
-        viewModel.refreshPermissions(rationale)
+        viewModel.refreshPermissions(rationaleAfter)
     }
     DisposableEffect(lifecycleOwner, activity) {
         val observer = LifecycleEventObserver { _, event ->
@@ -117,7 +116,7 @@ fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
                         viewModel.onEvent(SettingsEvent.PermissionRequested(permission))
                     }
                     requestPermission(context, permission) {
-                        pendingNotification = status to SystemClock.elapsedRealtime()
+                        rationaleBefore = notificationRationale(activity) == true
                         notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
                 }
@@ -127,8 +126,6 @@ fun SettingsRoute(viewModel: SettingsViewModel = hiltViewModel()) {
         onRetry = { viewModel.onEvent(SettingsEvent.Retry) },
     )
 }
-
-private const val SYSTEM_DENY_WINDOW_MS = 400L
 
 /** Stateless: every label and button below comes from [SettingsUiState.status]. */
 @OptIn(ExperimentalLayoutApi::class)
