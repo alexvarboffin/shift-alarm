@@ -2,6 +2,7 @@ package com.walhalla.shiftalarm
 
 import android.app.Application
 import com.walhalla.shiftalarm.core.alarm.AlarmRescheduleWatcher
+import com.walhalla.shiftalarm.core.alarm.RingingChannels
 import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
@@ -13,6 +14,7 @@ import org.koin.core.context.startKoin
 class ShiftAlarmApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        RingingChannels.ensureCreated(this)
         startKoin {
             androidContext(this@ShiftAlarmApp)
             modules(shiftAlarmModules)

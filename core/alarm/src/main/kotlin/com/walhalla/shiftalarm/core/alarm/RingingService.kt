@@ -5,7 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
@@ -115,7 +118,7 @@ class RingingService : Service(), KoinComponent {
         triggerAt: Long,
         snooze: Boolean,
     ): Notification {
-        ensureChannel()
+        RingingChannels.ensureCreated(this)
         val content = PendingIntent.getActivity(
             this,
             AlarmIntents.REQUEST_CONTENT,
@@ -148,24 +151,6 @@ class RingingService : Service(), KoinComponent {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-    }
-
-    /**
-     * One silent IMPORTANCE_HIGH channel: it only carries the full-screen intent or heads-up
-     * with Stop and Snooze. Sound and vibration come from [RingingPlayback].
-     */
-    private fun ensureChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = getSystemService(NotificationManager::class.java)
-        RingingChannels.LEGACY.forEach { manager.deleteNotificationChannel(it) }
-        if (manager.getNotificationChannel(RingingChannels.RING) != null) return
-        val channel = NotificationChannel(RingingChannels.RING, "Будильник смены", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Экран и кнопки сигнала смены. Звук идёт от будильника, а не от уведомления"
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            setSound(null, null)
-            enableVibration(false)
-        }
-        manager.createNotificationChannel(channel)
     }
 
     private fun acquireWakeLock() {
@@ -209,8 +194,52 @@ object RingingChannels {
     /** Sounding channel of the inexact fallback, used only when exact alarms are off. */
     const val FALLBACK: String = "shift_alarm_ring_fallback"
 
-    /** Channels of earlier builds, deleted when the service starts. */
+    /** Channels of earlier builds, deleted when the channels are created. */
     internal val LEGACY: List<String> = listOf("shift_alarm_ring_vibrate", "shift_alarm_ring_quiet")
+
+    /**
+     * Creates RING on every API that has channels, and FALLBACK on API 31–32.
+     * Called from the Application so settings can see the channels before the first ring.
+     * The service and the fallback notification call it again if the process started
+     * without the Application. Existing channels are left as the user set them.
+     */
+    fun ensureCreated(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        LEGACY.forEach { manager.deleteNotificationChannel(it) }
+        if (manager.getNotificationChannel(RING) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(RING, "Будильник смены", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Экран и кнопки сигнала смены. Звук идёт от будильника, а не от уведомления"
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    setSound(null, null)
+                    enableVibration(false)
+                },
+            )
+        }
+        val sdk = Build.VERSION.SDK_INT
+        if (sdk in Build.VERSION_CODES.S..Build.VERSION_CODES.S_V2 &&
+            manager.getNotificationChannel(FALLBACK) == null
+        ) {
+            val audio = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    FALLBACK,
+                    "Будильник смены без точных будильников",
+                    NotificationManager.IMPORTANCE_HIGH,
+                ).apply {
+                    description = "Звучит, пока не открыт экран будильника, когда точные будильники выключены"
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), audio)
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 600, 200, 600, 200, 800)
+                },
+            )
+        }
+    }
 }
 
 /**
