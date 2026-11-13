@@ -5,6 +5,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -38,6 +42,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -132,8 +137,12 @@ fun ScheduleScreen(
             )
         }
         shown.editor?.let { editor ->
+            val editorInView = remember { BringIntoViewRequester() }
+            LaunchedEffect(Unit) { editorInView.bringIntoView() }
             Spacer(Modifier.height(16.dp))
-            PatternEditor(editor = editor, onEditorEvent = onEditorEvent)
+            Box(Modifier.bringIntoViewRequester(editorInView)) {
+                PatternEditor(editor = editor, onEditorEvent = onEditorEvent)
+            }
         }
         Spacer(Modifier.height(20.dp))
         when {
@@ -159,6 +168,7 @@ fun ScheduleScreen(
             }
         }
         Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.navigationBarsPadding())
     }
 }
 
