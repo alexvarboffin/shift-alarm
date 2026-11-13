@@ -7,16 +7,14 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.walhalla.shiftalarm.core.alarm.AlarmIntents
 import com.walhalla.shiftalarm.core.ui.ShiftAlarmTheme
-import dagger.hilt.android.AndroidEntryPoint
+import org.koin.androidx.viewmodel.ext.android.viewModel
 
-@AndroidEntryPoint
 class RingingActivity : ComponentActivity() {
-    private val viewModel: RingingViewModel by viewModels()
+    private val viewModel: RingingViewModel by viewModel()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

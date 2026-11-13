@@ -5,8 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.walhalla.shiftalarm.core.alarm.RingingController
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.ui.UiText
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -15,8 +13,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-@HiltViewModel
-class RingingViewModel @Inject constructor(
+class RingingViewModel(
     private val ringingController: RingingController,
     settingsRepository: SettingsRepository,
 ) : ViewModel() {

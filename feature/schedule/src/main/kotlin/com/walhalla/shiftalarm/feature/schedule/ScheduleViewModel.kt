@@ -11,11 +11,9 @@ import com.walhalla.shiftalarm.core.model.ShiftType
 import com.walhalla.shiftalarm.core.model.ShiftTypeCatalog
 import com.walhalla.shiftalarm.core.model.ShiftTypeId
 import com.walhalla.shiftalarm.core.ui.UiText
-import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
-import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,8 +24,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-@HiltViewModel
-class ScheduleViewModel @Inject constructor(
+class ScheduleViewModel(
     private val repository: ShiftRepository,
     private val widgetRefresher: HomeWidgetRefresher,
 ) : ViewModel() {

@@ -49,15 +49,13 @@ flowchart TD
 ## Правила слоёв
 
 - `:core:model` не импортирует Android. Там домен, `ShiftCalculator`, `NextAlarmPlanner`, интерфейсы репозиториев и `HomeWidgetRefresher`.
-- `:core:database` и `:core:datastore` реализуют репозитории. Наружу их классы не торчат: фичи получают интерфейсы через DI. На этой базе это ещё Hilt, Koin приходит с T10g (раздел «DI: Koin»).
+- `:core:database` и `:core:datastore` реализуют репозитории. Наружу их классы не торчат: фичи получают интерфейсы через Koin.
 - `:core:alarm` владеет `AlarmScheduler`, `AlarmManager` и foreground-сервисом звонка. Он не знает про Compose и не зависит от фич. Экран звонка открывается через `RingingLaunchIntent`, реализацию которого даёт `:feature:alarm`.
 - Фича не зависит от другой фичи. Навигацию между ними собирает `:app`.
 - Виджет не зависит от фич. Данные он берёт из `ShiftRepository` и считает завтра через `ShiftCalculator`.
 - Состояние экрана — `ViewModel` и `StateFlow<UiState>`. Компоненты не ходят в Room.
 
 ## DI: Koin
-
-> Реализует T10g ([PR #2](https://github.com/alexvarboffin/shift-alarm/pull/2)), мёржится сразу после этого PR. До него код на этой базе ещё на Hilt.
 
 Решение пользователя (T10g): DI только Koin 4.1.0, Hilt и kapt не используются. KSP остаётся только в `:core:database` для Room.
 
@@ -341,7 +339,7 @@ Glance App Widget, подпись в списке виджетов: «завтр
 | KSP | 2.3.13 | [symbol-processing-api](https://repo1.maven.org/maven2/com/google/devtools/ksp/symbol-processing-api/maven-metadata.xml). На Google Maven лежит устаревшая ветка 1.5.30. Документация KSP ставит 2.3.x рядом с Kotlin 2.4 |
 | Compose BOM | 2026.06.01 | [compose-bom](https://dl.google.com/dl/android/maven2/androidx/compose/compose-bom/maven-metadata.xml). UI 1.11.4, `minCompileSdk` 35. Material3 в этом BOM — 1.4.0, `minCompileSdk` 35 |
 | Room + компилятор | 2.8.5 | [room-runtime](https://dl.google.com/dl/android/maven2/androidx/room/room-runtime/maven-metadata.xml) |
-| Koin | 4.1.0 | [koin-android на Maven Central](https://repo1.maven.org/maven2/io/insert-koin/koin-android/maven-metadata.xml). Артефакты: `koin-android`, `koin-compose-viewmodel`, `koin-androidx-workmanager`, `koin-test`, `koin-test-junit4`. Реализует T10g |
+| Koin | 4.1.0 | [koin-android на Maven Central](https://repo1.maven.org/maven2/io/insert-koin/koin-android/maven-metadata.xml). Артефакты: `koin-android`, `koin-compose-viewmodel`, `koin-androidx-workmanager`, `koin-test`, `koin-test-junit4` |
 | DataStore | 1.3.0 | [datastore-preferences](https://dl.google.com/dl/android/maven2/androidx/datastore/datastore-preferences/maven-metadata.xml) |
 | Glance | 1.2.0 | [glance-appwidget](https://dl.google.com/dl/android/maven2/androidx/glance/glance-appwidget/maven-metadata.xml), последний stable |
 | Glance preview | 1.2.0, только debug | [glance-preview](https://dl.google.com/dl/android/maven2/androidx/glance/glance-preview/maven-metadata.xml) (`minCompileSdk` 34) и [glance-appwidget-preview](https://dl.google.com/dl/android/maven2/androidx/glance/glance-appwidget-preview/maven-metadata.xml) (`minCompileSdk` 35). 1.3.0 ещё alpha |
