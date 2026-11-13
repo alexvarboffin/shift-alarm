@@ -206,7 +206,7 @@ object RingingChannels {
     fun ensureCreated(context: Context) = ensureCreated(context, Build.VERSION.SDK_INT)
 
     internal fun ensureCreated(context: Context, sdkInt: Int) {
-        if (sdkInt < Build.VERSION_CODES.O) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || sdkInt < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         LEGACY.forEach { manager.deleteNotificationChannel(it) }
         if (manager.getNotificationChannel(RING) == null) {
