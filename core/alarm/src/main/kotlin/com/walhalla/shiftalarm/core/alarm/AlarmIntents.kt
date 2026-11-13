@@ -6,10 +6,15 @@ object AlarmIntents {
     const val EXTRA_SHIFT_NAME: String = "com.walhalla.shiftalarm.extra.SHIFT_NAME"
     const val EXTRA_SNOOZE: String = "com.walhalla.shiftalarm.extra.SNOOZE"
 
+    /** Set on the inexact fallback alarm: the receiver must not start the FGS from the background. */
+    const val EXTRA_FALLBACK: String = "com.walhalla.shiftalarm.extra.FALLBACK"
+
     const val REQUEST_FIRE: Int = 4101
     const val REQUEST_SHOW: Int = 4102
     const val REQUEST_CONTENT: Int = 4103
     const val REQUEST_STOP: Int = 4104
     const val REQUEST_SNOOZE: Int = 4105
     const val NOTIFICATION_EXACT_DENIED: Int = 4106
+    const val NOTIFICATION_FALLBACK_RING: Int = 4107
+    const val REQUEST_FALLBACK_CONTENT: Int = 4108
 }

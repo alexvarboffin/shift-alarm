@@ -10,32 +10,51 @@ import com.walhalla.shiftalarm.core.model.ShiftTemplates
 import com.walhalla.shiftalarm.core.model.ShiftType
 import com.walhalla.shiftalarm.core.model.ShiftTypeCatalog
 import com.walhalla.shiftalarm.core.model.ShiftTypeId
+import com.walhalla.shiftalarm.core.model.keepAlive
 import com.walhalla.shiftalarm.core.ui.UiText
+import java.time.Clock
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class ScheduleViewModel(
+@OptIn(ExperimentalCoroutinesApi::class)
+class ScheduleViewModel internal constructor(
     private val repository: ShiftRepository,
     private val widgetRefresher: HomeWidgetRefresher,
+    private val clock: Clock,
+    scopeOverride: CoroutineScope?,
 ) : ViewModel() {
+    private val workScope = scopeOverride ?: viewModelScope
     private val editor = MutableStateFlow<EditorDraft?>(null)
+    private val readError = MutableStateFlow<UiText?>(null)
+    private val commandError = MutableStateFlow<UiText?>(null)
+    private val reload = MutableStateFlow(0)
+
+    constructor(
+        repository: ShiftRepository,
+        widgetRefresher: HomeWidgetRefresher,
+        clock: Clock,
+    ) : this(repository, widgetRefresher, clock, null)
 
     val uiState: StateFlow<ScheduleUiState> = combine(
-        repository.observePatterns(),
-        repository.observeActivePattern(),
-        repository.observeShiftTypes(),
+        reload.flatMapLatest { repository.observePatterns().keepAlive(emptyList()) { readError.value = readFailure() } },
+        reload.flatMapLatest { repository.observeActivePattern().keepAlive(null) { readError.value = readFailure() } },
+        reload.flatMapLatest { repository.observeShiftTypes().keepAlive(emptyList()) { readError.value = readFailure() } },
         editor,
-    ) { patterns, active, storedTypes, draft ->
+        combine(readError, commandError) { read, command -> read to command },
+    ) { patterns, active, storedTypes, draft, errors ->
         ScheduleUiState(
             isLoading = false,
             patterns = patterns.map { pattern ->
@@ -49,33 +68,58 @@ class ScheduleViewModel(
             },
             activePatternId = active?.id,
             editor = draft?.toState(storedTypes),
-        )
-    }.catch { error ->
-        emit(
-            ScheduleUiState(
-                isLoading = false,
-                errorMessage = UiText.Raw(error.message ?: "Не удалось прочитать график"),
-            ),
+            loadError = errors.first,
+            commandError = errors.second,
         )
     }.stateIn(
-        scope = viewModelScope,
+        scope = workScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = ScheduleUiState(),
     )
+
+    private fun readFailure(): UiText = UiText.Res(R.string.schedule_error_read)
+
+    fun onEvent(event: ScheduleEvent) {
+        when (event) {
+            ScheduleEvent.Retry -> retry()
+            ScheduleEvent.DismissError -> commandError.value = null
+        }
+    }
+
+    /** "Retry": clears both errors and subscribes to the repository again. */
+    private fun retry() {
+        commandError.value = null
+        readError.value = null
+        reload.update { it + 1 }
+    }
+
+    /** Runs a write. A failure becomes a command error instead of crashing the screen. */
+    private fun command(block: suspend () -> Unit) {
+        workScope.launch {
+            try {
+                block()
+                commandError.value = null
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                commandError.value = UiText.Res(R.string.schedule_error_save)
+            }
+        }
+    }
 
     fun applyTemplate(template: PatternTemplate) {
         if (template == PatternTemplate.CUSTOM) {
             openCustomEditor()
             return
         }
-        viewModelScope.launch {
-            val today = LocalDate.now()
+        command {
+            val today = LocalDate.now(clock)
             val pattern = when (template) {
                 PatternTemplate.TWO_TWO -> ShiftTemplates.twoTwo(today)
                 PatternTemplate.THREE_THREE -> ShiftTemplates.threeThree(today)
                 PatternTemplate.ONE_THREE -> ShiftTemplates.oneThree(today)
                 PatternTemplate.FIVE_TWO -> ShiftTemplates.fiveTwo(today)
-                PatternTemplate.CUSTOM -> return@launch
+                PatternTemplate.CUSTOM -> return@command
             }
             repository.saveAndActivate(pattern)
             widgetRefresher.refresh()
@@ -85,7 +129,7 @@ class ScheduleViewModel(
     fun openCustomEditor() {
         editor.value = EditorDraft(
             name = "Свой график",
-            startDate = LocalDate.now(),
+            startDate = LocalDate.now(clock),
             slots = emptyList(),
         )
     }
@@ -97,7 +141,7 @@ class ScheduleViewModel(
             is PatternEditorEvent.SetStartDate -> editor.value = current.copy(startDate = event.date, saveError = null)
             is PatternEditorEvent.AddSlot -> {
                 if (current.slots.size >= PatternLimits.MAX_SLOTS) {
-                    editor.value = current.copy(saveError = PatternLimits.slotCountMessage(current.slots.size + 1))
+                    editor.value = current.copy(saveError = slotCountError(current.slots.size + 1))
                     return
                 }
                 editor.value = current.copy(slots = current.slots + event.shiftTypeId, saveError = null)
@@ -125,7 +169,12 @@ class ScheduleViewModel(
             }
             is PatternEditorEvent.SetLeadMinutes -> {
                 if (event.minutes !in ShiftType.MIN_LEAD_MINUTES..ShiftType.MAX_LEAD_MINUTES) {
-                    editor.value = current.copy(saveError = "Упреждение от 0 до 1440 минут.")
+                    editor.value = current.copy(
+                        saveError = UiText.Res(
+                            R.string.schedule_error_lead_range,
+                            listOf(ShiftType.MIN_LEAD_MINUTES, ShiftType.MAX_LEAD_MINUTES),
+                        ),
+                    )
                     return
                 }
                 val timing = current.timings[event.shiftTypeId] ?: TypeTiming()
@@ -134,24 +183,24 @@ class ScheduleViewModel(
                     saveError = null,
                 )
             }
-            PatternEditorEvent.Save -> viewModelScope.launch { save(current) }
+            PatternEditorEvent.Save -> command { save(current) }
             PatternEditorEvent.Cancel -> editor.value = null
         }
     }
 
     fun activate(patternId: String) {
-        viewModelScope.launch {
+        command {
             repository.setActivePattern(patternId)
             widgetRefresher.refresh()
         }
     }
 
     private suspend fun save(draft: EditorDraft) {
-        if (PatternLimits.slotCountMessage(draft.slots.size) != null) return
+        if (slotCountError(draft.slots.size) != null) return
         val stored = repository.observeShiftTypes().first()
         val cycle = draft.slots.mapIndexed { index, id ->
             val base = ShiftTypeCatalog.find(stored, id) ?: run {
-                editor.update { it?.copy(saveError = "Неизвестный тип смены.") }
+                editor.update { it?.copy(saveError = UiText.Res(R.string.schedule_error_unknown_type)) }
                 return
             }
             draft.timings[id]?.applyTo(base, index) ?: base
@@ -179,7 +228,7 @@ class ScheduleViewModel(
                     alarmLeadMinutes = timing.alarmLeadMinutes ?: option.alarmLeadMinutes,
                 )
             },
-            errorMessage = (PatternLimits.slotCountMessage(slots.size) ?: saveError)?.let(UiText::Raw),
+            errorMessage = slotCountError(slots.size) ?: saveError,
         )
 
     private data class EditorDraft(
@@ -187,7 +236,7 @@ class ScheduleViewModel(
         val startDate: LocalDate,
         val slots: List<ShiftTypeId>,
         val timings: Map<ShiftTypeId, TypeTiming> = emptyMap(),
-        val saveError: String? = null,
+        val saveError: UiText? = null,
     )
 
     private data class TypeTiming(
@@ -206,6 +255,12 @@ class ScheduleViewModel(
             )
         }
     }
+}
+
+internal fun slotCountError(count: Int): UiText? = when {
+    count < PatternLimits.MIN_SLOTS -> UiText.Res(R.string.schedule_error_slots_min)
+    count > PatternLimits.MAX_SLOTS -> UiText.Res(R.string.schedule_error_slots_max, listOf(PatternLimits.MAX_SLOTS))
+    else -> null
 }
 
 private fun moveSlot(slots: List<ShiftTypeId>, fromIndex: Int, toIndex: Int): List<ShiftTypeId> {

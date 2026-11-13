@@ -74,8 +74,8 @@ fun CalendarScreen(
         }
         when {
             state.isLoading -> CircularProgressIndicator()
-            state.errorMessage != null -> Text(
-                state.errorMessage.resolve(LocalContext.current),
+            (state.loadError ?: state.commandError) != null -> Text(
+                (state.loadError ?: state.commandError)!!.resolve(LocalContext.current),
                 color = MaterialTheme.colorScheme.error,
             )
             else -> {

@@ -5,16 +5,21 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.UserManager
 import androidx.core.app.NotificationCompat
 import com.walhalla.shiftalarm.core.model.SettingsRepository
+import com.walhalla.shiftalarm.core.model.UserSettings
+import java.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -28,9 +33,17 @@ class RingingService : Service(), KoinComponent {
 
     private val ringingLaunchIntent: RingingLaunchIntent by inject()
 
+    private val clock: Clock by inject()
+
     private val scope: CoroutineScope by inject(ApplicationScope)
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private val playback by lazy { RingingPlayback(this) }
+    private val handler = Handler(Looper.getMainLooper())
+    private val autoStop = Runnable {
+        // Nobody pressed Stop: same as dismiss(), the next slot is already armed.
+        scope.launch { runThenStopRinging(::stopRinging) { scheduler.dismiss() } }
+    }
     private var ringingShiftName: String = "Смена"
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -38,13 +51,15 @@ class RingingService : Service(), KoinComponent {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> scope.launch {
-                scheduler.dismiss()
-                stopRinging()
+                runThenStopRinging(::stopRinging) { scheduler.dismiss() }
             }
             ACTION_SNOOZE -> scope.launch {
-                val minutes = settingsRepository.settings.first().snoozeMinutes
-                scheduler.snooze(minutes, ringingShiftName)
-                stopRinging()
+                runThenStopRinging(::stopRinging) {
+                    val minutes = resolveSnoozeMinutes(isUserUnlocked()) {
+                        settingsRepository.settings.first().snoozeMinutes
+                    }
+                    scheduler.snooze(minutes, ringingShiftName.ifBlank { "Смена" })
+                }
             }
             else -> startRinging(intent)
         }
@@ -52,38 +67,47 @@ class RingingService : Service(), KoinComponent {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(autoStop)
+        playback.stop()
+        RingingState.set(false)
         releaseWakeLock()
         super.onDestroy()
     }
 
     private fun startRinging(intent: Intent?) {
         val shiftName = intent?.getStringExtra(AlarmIntents.EXTRA_SHIFT_NAME).orEmpty().ifBlank { "Смена" }
-        val triggerAt = intent?.getLongExtra(AlarmIntents.EXTRA_TRIGGER_AT_MILLIS, System.currentTimeMillis())
-            ?: System.currentTimeMillis()
+        val now = clock.millis()
+        val triggerAt = intent?.getLongExtra(AlarmIntents.EXTRA_TRIGGER_AT_MILLIS, now) ?: now
         val snooze = intent?.getBooleanExtra(AlarmIntents.EXTRA_SNOOZE, false) ?: false
         ringingShiftName = shiftName
+        FallbackRingNotification.cancel(this)
         acquireWakeLock()
-        enterForeground(buildNotification(shiftName, triggerAt, snooze, vibration = true))
+        enterForeground(buildNotification(shiftName, triggerAt, snooze))
+        RingingState.set(true)
+        handler.removeCallbacks(autoStop)
+        handler.postDelayed(autoStop, AUTO_STOP_MILLIS)
         scope.launch {
             val vibration = if (isUserUnlocked()) {
                 runCatching { settingsRepository.settings.first().vibrationEnabled }.getOrDefault(true)
             } else {
                 true
             }
-            val notification = buildNotification(shiftName, triggerAt, snooze, vibration)
-            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
+            handler.post { if (RingingState.isRinging.value) playback.start(vibration) }
         }
     }
 
     private fun enterForeground(notification: Notification) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
     }
 
     private fun stopRinging() {
+        handler.removeCallbacks(autoStop)
+        playback.stop()
+        RingingState.set(false)
         releaseWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -93,9 +117,8 @@ class RingingService : Service(), KoinComponent {
         shiftName: String,
         triggerAt: Long,
         snooze: Boolean,
-        vibration: Boolean,
     ): Notification {
-        ensureChannel(vibration)
+        RingingChannels.ensureCreated(this)
         val content = PendingIntent.getActivity(
             this,
             AlarmIntents.REQUEST_CONTENT,
@@ -106,7 +129,7 @@ class RingingService : Service(), KoinComponent {
         val snoozeAction = serviceAction(AlarmIntents.REQUEST_SNOOZE, ACTION_SNOOZE)
         val title = if (snooze) "Повтор: $shiftName" else shiftName
         val text = if (snooze) "Отложенный сигнал смены" else "Пора на смену"
-        return NotificationCompat.Builder(this, channelId(vibration))
+        return NotificationCompat.Builder(this, RingingChannels.RING)
             .setSmallIcon(R.drawable.ic_stat_shift)
             .setContentTitle(title)
             .setContentText(text)
@@ -130,30 +153,6 @@ class RingingService : Service(), KoinComponent {
         )
     }
 
-    private fun ensureChannel(vibration: Boolean) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = getSystemService(NotificationManager::class.java)
-        val id = channelId(vibration)
-        if (manager.getNotificationChannel(id) != null) return
-        val name = if (vibration) "Будильник смены" else "Будильник смены без вибрации"
-        // IMPORTANCE_HIGH is the heads-up channel used when full-screen intent is denied.
-        val channel = NotificationChannel(id, name, NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Сигнал начала смены"
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            setBypassDnd(true)
-            val audio = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), audio)
-            enableVibration(vibration)
-            if (vibration) {
-                vibrationPattern = longArrayOf(0, 600, 200, 600, 200, 800)
-            }
-        }
-        manager.createNotificationChannel(channel)
-    }
-
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
         val power = getSystemService(PowerManager::class.java)
@@ -175,18 +174,92 @@ class RingingService : Service(), KoinComponent {
         return userManager.isUserUnlocked
     }
 
-    private fun channelId(vibration: Boolean): String =
-        if (vibration) CHANNEL_VIBRATE else CHANNEL_QUIET
-
     companion object {
         const val ACTION_FIRE: String = "com.walhalla.shiftalarm.action.RINGING_FIRE"
         const val ACTION_STOP: String = "com.walhalla.shiftalarm.action.RINGING_STOP"
         const val ACTION_SNOOZE: String = "com.walhalla.shiftalarm.action.RINGING_SNOOZE"
 
         private const val NOTIFICATION_ID: Int = 7101
-        private const val CHANNEL_VIBRATE: String = "shift_alarm_ring_vibrate"
-        private const val CHANNEL_QUIET: String = "shift_alarm_ring_quiet"
         private const val WAKE_LOCK_TIMEOUT_MILLIS: Long = 10 * 60 * 1000L
+
+        /** Ring stops by itself after 10 minutes, the same as Stop. */
+        internal const val AUTO_STOP_MILLIS: Long = 10 * 60 * 1000L
+    }
+}
+
+/** Ringing notification channel. Settings reads it to see if the user switched it off. */
+object RingingChannels {
+    const val RING: String = "shift_alarm_ring"
+
+    /** Sounding channel of the inexact fallback, used only when exact alarms are off. */
+    const val FALLBACK: String = "shift_alarm_ring_fallback"
+
+    /** Channels of earlier builds, deleted when the channels are created. */
+    internal val LEGACY: List<String> = listOf("shift_alarm_ring_vibrate", "shift_alarm_ring_quiet")
+
+    /**
+     * Creates RING on every API that has channels, and FALLBACK on API 31–32.
+     * Called from the Application so settings can see the channels before the first ring.
+     * The service and the fallback notification call it again if the process started
+     * without the Application. Existing channels are left as the user set them.
+     */
+    fun ensureCreated(context: Context) = ensureCreated(context, Build.VERSION.SDK_INT)
+
+    internal fun ensureCreated(context: Context, sdkInt: Int) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || sdkInt < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        LEGACY.forEach { manager.deleteNotificationChannel(it) }
+        if (manager.getNotificationChannel(RING) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(RING, "Будильник смены", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Экран и кнопки сигнала смены. Звук идёт от будильника, а не от уведомления"
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    setSound(null, null)
+                    enableVibration(false)
+                },
+            )
+        }
+        if (sdkInt in Build.VERSION_CODES.S..Build.VERSION_CODES.S_V2 &&
+            manager.getNotificationChannel(FALLBACK) == null
+        ) {
+            val audio = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    FALLBACK,
+                    "Будильник смены без точных будильников",
+                    NotificationManager.IMPORTANCE_HIGH,
+                ).apply {
+                    description = "Звучит, пока не открыт экран будильника, когда точные будильники выключены"
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), audio)
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 600, 200, 600, 200, 800)
+                },
+            )
+        }
+    }
+}
+
+/**
+ * Before the first unlock the credential-encrypted settings store is unavailable.
+ * Snooze minutes then stay at the default and are not read from that store.
+ */
+internal suspend fun resolveSnoozeMinutes(
+    userUnlocked: Boolean,
+    readSettings: suspend () -> Int,
+): Int {
+    if (!userUnlocked) return UserSettings.DEFAULT_SNOOZE_MINUTES
+    return readSettings()
+}
+
+internal suspend fun runThenStopRinging(stop: () -> Unit, block: suspend () -> Unit) {
+    try {
+        block()
+    } finally {
+        stop()
     }
 }
 

@@ -8,6 +8,7 @@ import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftRepository
 import com.walhalla.shiftalarm.core.model.UserSettings
+import java.time.Clock
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +29,7 @@ class AlarmRescheduleWatcher(
     private val alarmRepository: AlarmRepository,
     private val settingsRepository: SettingsRepository,
     private val scheduler: AlarmScheduler,
+    private val clock: Clock,
     private val scope: CoroutineScope,
 ) {
     private val started = AtomicBoolean(false)
@@ -41,7 +43,7 @@ class AlarmRescheduleWatcher(
                 if (generation == handled) return@collect
                 handled = generation
                 try {
-                    scheduler.scheduleNext()
+                    scheduler.scheduleNext(clock.millis())
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {

@@ -1,5 +1,6 @@
 package com.walhalla.shiftalarm.core.model
 
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -160,6 +161,30 @@ class NextAlarmPlannerTest {
     }
 
     @Test
+    fun fallBackOverlapUsesTheFirstOccurrenceOnTheSameDay() {
+        val fall = berlin.rules.nextTransition(Instant.parse("2026-10-01T00:00:00Z"))
+        val day = fall.dateTimeBefore.toLocalDate()
+        val pattern = oneAlarm(day, LocalTime.of(2, 30))
+        val now = ZonedDateTime.of(day, LocalTime.of(1, 0), berlin)
+        val planned = NextAlarmPlanner.earliest(now, pattern)
+        assertEquals(day, planned?.triggerAt?.toLocalDate())
+        assertEquals(LocalTime.of(2, 30), planned?.triggerAt?.toLocalTime())
+        assertEquals(fall.offsetBefore, planned?.triggerAt?.offset)
+        assertTrue(planned!!.triggerAt.toInstant().isAfter(now.toInstant()))
+    }
+
+    @Test
+    fun springForwardGapIsTheNextAlarmOnTheSameDay() {
+        val spring = berlin.rules.nextTransition(Instant.parse("2026-03-01T00:00:00Z"))
+        val day = spring.dateTimeBefore.toLocalDate()
+        val now = spring.instant.minusSeconds(60 * 60).atZone(berlin)
+        val planned = NextAlarmPlanner.earliest(now, oneAlarm(day, LocalTime.of(2, 30)))
+        assertEquals(day, planned?.triggerAt?.toLocalDate())
+        assertEquals(LocalTime.of(3, 30), planned?.triggerAt?.toLocalTime())
+        assertTrue(planned!!.triggerAt.toInstant().isAfter(now.toInstant()))
+    }
+
+    @Test
     fun offOnlyPatternHasNoAlarm() {
         val offOnly = ShiftTemplates.custom("off", "Выходные", LocalDate.of(2026, 1, 1), listOf(BuiltinShifts.off))
         assertNull(
@@ -168,6 +193,11 @@ class NextAlarmPlannerTest {
                 offOnly,
             ),
         )
+    }
+
+    private fun oneAlarm(day: LocalDate, start: LocalTime): ShiftPattern {
+        val shift = ShiftType("early", ShiftKind.CUSTOM, "Ранняя", 0L, 0L, start, alarmLeadMinutes = 0)
+        return ShiftTemplates.custom("one", "Один", day, listOf(shift))
     }
 }
 
@@ -206,5 +236,26 @@ class NextTriggerSelectorTest {
         )
         assertEquals("День", selected?.shiftName)
         assertTrue(selected?.snooze == false)
+    }
+
+    @Test
+    fun noAlarmBeforeThePatternStartDate() {
+        val start = LocalDate.of(2026, 6, 10)
+        val pattern = ShiftTemplates.twoTwo(start)
+        val now = ZonedDateTime.of(LocalDateTime.of(2026, 6, 1, 12, 0), ZoneOffset.UTC)
+
+        val planned = NextAlarmPlanner.earliest(now, pattern)
+
+        assertEquals(start, planned?.date)
+        assertEquals(BuiltinShifts.day, planned?.shift)
+    }
+
+    @Test
+    fun farBeforeStartStillFindsTheFirstShift() {
+        val start = LocalDate.of(2026, 9, 1)
+        val pattern = ShiftTemplates.twoTwo(start)
+        val now = ZonedDateTime.of(LocalDateTime.of(2026, 6, 1, 12, 0), ZoneOffset.UTC)
+
+        assertEquals(start, NextAlarmPlanner.earliest(now, pattern)?.date)
     }
 }

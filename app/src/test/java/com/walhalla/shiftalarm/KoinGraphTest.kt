@@ -1,6 +1,7 @@
 package com.walhalla.shiftalarm
 
 import android.content.Context
+import androidx.lifecycle.SavedStateHandle
 import java.io.File
 import org.junit.Test
 import org.koin.core.annotation.KoinExperimentalAPI
@@ -13,7 +14,7 @@ class KoinGraphTest {
     @Test
     fun graphIsComplete() {
         module { includes(shiftAlarmModules) }.verify(
-            extraTypes = listOf(Context::class, File::class),
+            extraTypes = listOf(Context::class, File::class, SavedStateHandle::class),
         )
     }
 }

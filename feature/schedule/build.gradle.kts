@@ -31,4 +31,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.koin.android)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.android)
 }

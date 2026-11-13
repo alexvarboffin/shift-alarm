@@ -4,11 +4,13 @@ import com.walhalla.shiftalarm.core.model.AlarmException
 import com.walhalla.shiftalarm.core.model.AlarmRepository
 import com.walhalla.shiftalarm.core.model.BuiltinShifts
 import com.walhalla.shiftalarm.core.model.DayOverride
+import com.walhalla.shiftalarm.core.model.AppPermission
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftRepository
 import com.walhalla.shiftalarm.core.model.ShiftType
 import com.walhalla.shiftalarm.core.model.UserSettings
+import java.time.Clock
 import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +35,7 @@ class AlarmRescheduleWatcherTest {
             WatchAlarmRepository(),
             WatchSettingsRepository(),
             scheduler,
+            Clock.systemUTC(),
             CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
         )
 
@@ -94,6 +97,10 @@ private class WatchAlarmRepository : AlarmRepository {
 }
 
 private class WatchSettingsRepository : SettingsRepository {
+    override val permissionRequestCounts: Flow<Map<AppPermission, Int>> = MutableStateFlow(emptyMap())
+
+    override suspend fun markRequested(permission: AppPermission) = Unit
+
     override val settings: Flow<UserSettings> = MutableStateFlow(UserSettings())
 
     override suspend fun setSnoozeMinutes(minutes: Int) = Unit

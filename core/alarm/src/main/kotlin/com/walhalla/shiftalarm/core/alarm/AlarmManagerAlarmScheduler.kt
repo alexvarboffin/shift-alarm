@@ -21,8 +21,8 @@ import com.walhalla.shiftalarm.core.model.ScheduledTrigger
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.ShiftPattern
 import com.walhalla.shiftalarm.core.model.ShiftRepository
+import java.time.Clock
 import java.time.Instant
-import java.time.ZoneId
 import kotlinx.coroutines.flow.first
 
 class AlarmManagerAlarmScheduler(
@@ -31,6 +31,7 @@ class AlarmManagerAlarmScheduler(
     private val alarmRepository: AlarmRepository,
     private val settingsRepository: SettingsRepository,
     private val directBootStore: DeviceProtectedAlarmStore,
+    private val clock: Clock,
 ) : AlarmScheduler {
     private val alarmManager: AlarmManager
         get() = context.getSystemService(AlarmManager::class.java)
@@ -41,8 +42,7 @@ class AlarmManagerAlarmScheduler(
             return
         }
         migrateDirectBootSnapshot()
-        val zone = ZoneId.systemDefault()
-        val now = Instant.ofEpochMilli(nowEpochMillis).atZone(zone)
+        val now = Instant.ofEpochMilli(nowEpochMillis).atZone(clock.zone)
         val pattern = shiftRepository.observeActivePattern().first()
         val overrides = shiftRepository.observeOverrides().first()
         val exceptions = alarmRepository.observeExceptions().first()
@@ -98,7 +98,7 @@ class AlarmManagerAlarmScheduler(
 
     override suspend fun snooze(minutes: Int, shiftName: String) {
         val delayMillis = minutes.coerceIn(1, 120) * 60_000L
-        val at = System.currentTimeMillis() + delayMillis
+        val at = clock.millis() + delayMillis
         if (!context.isUserUnlocked()) {
             val current = directBootStore.read() ?: DirectBootSnapshot(
                 triggerEpochMillis = at,
@@ -123,7 +123,7 @@ class AlarmManagerAlarmScheduler(
             return
         }
         settingsRepository.setPendingSnooze(epochMillis = at, shiftName = shiftName)
-        scheduleNext()
+        scheduleNext(clock.millis())
     }
 
     override suspend fun dismiss() {
@@ -137,7 +137,7 @@ class AlarmManagerAlarmScheduler(
                 )
             }
         }
-        scheduleNext()
+        scheduleNext(clock.millis())
     }
 
     override fun canScheduleExactAlarms(): Boolean {
@@ -150,12 +150,13 @@ class AlarmManagerAlarmScheduler(
         return context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
     }
 
-    private fun firePending(selected: ScheduledTrigger? = null): PendingIntent {
+    private fun firePending(selected: ScheduledTrigger? = null, fallback: Boolean = false): PendingIntent {
         val intent = Intent(context, AlarmFireReceiver::class.java).setAction(AlarmIntents.ACTION_FIRE)
         if (selected != null) {
             intent.putExtra(AlarmIntents.EXTRA_TRIGGER_AT_MILLIS, selected.epochMillis)
             intent.putExtra(AlarmIntents.EXTRA_SHIFT_NAME, selected.shiftName)
             intent.putExtra(AlarmIntents.EXTRA_SNOOZE, selected.snooze)
+            intent.putExtra(AlarmIntents.EXTRA_FALLBACK, fallback)
         }
         return PendingIntent.getBroadcast(
             context,
@@ -208,8 +209,7 @@ class AlarmManagerAlarmScheduler(
             alarmManager.cancel(firePending())
             return
         }
-        val zone = ZoneId.systemDefault()
-        val now = Instant.ofEpochMilli(nowEpochMillis).atZone(zone)
+        val now = Instant.ofEpochMilli(nowEpochMillis).atZone(clock.zone)
         var snoozeEpoch = snapshot.snoozeEpochMillis
         var snoozeName = snapshot.snoozeShiftName
         if (snoozeEpoch != null && snoozeEpoch <= nowEpochMillis) {
@@ -246,7 +246,7 @@ class AlarmManagerAlarmScheduler(
             if (snapshot.snoozeEpochMillis != null) {
                 settingsRepository.setPendingSnooze(snapshot.snoozeEpochMillis, snapshot.snoozeShiftName)
             }
-        } else if (snapshot.snoozeEpochMillis != null && snapshot.snoozeEpochMillis > System.currentTimeMillis()) {
+        } else if (snapshot.snoozeEpochMillis != null && snapshot.snoozeEpochMillis > clock.millis()) {
             val settings = settingsRepository.settings.first()
             if (settings.pendingSnoozeAtEpochMillis != snapshot.snoozeEpochMillis) {
                 settingsRepository.setPendingSnooze(snapshot.snoozeEpochMillis, snapshot.snoozeShiftName)
@@ -268,13 +268,12 @@ class AlarmManagerAlarmScheduler(
             notifications.cancel(AlarmIntents.NOTIFICATION_EXACT_DENIED)
             return
         }
-        val operation = firePending(selected)
         if (canScheduleExactAlarms()) {
             notifications.cancel(AlarmIntents.NOTIFICATION_EXACT_DENIED)
             try {
                 alarmManager.setAlarmClock(
                     AlarmManager.AlarmClockInfo(selected.epochMillis, showPending()),
-                    operation,
+                    firePending(selected),
                 )
                 return
             } catch (error: SecurityException) {
@@ -283,7 +282,7 @@ class AlarmManagerAlarmScheduler(
         } else {
             Log.w(TAG, "Exact alarms are off. Arming an inexact fallback for ${selected.epochMillis}.")
         }
-        scheduleInexactFallback(selected.epochMillis, operation)
+        scheduleInexactFallback(selected.epochMillis, firePending(selected, fallback = true))
         notifyExactAlarmsDenied(notifications)
     }
 

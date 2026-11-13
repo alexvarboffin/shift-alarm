@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.walhalla.shiftalarm.core.model.AppPermission
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.UserSettings
 import kotlinx.coroutines.flow.Flow
@@ -50,6 +51,19 @@ class DataStoreSettingsRepository(
         }
     }
 
+    override val permissionRequestCounts: Flow<Map<AppPermission, Int>> = dataStore.data.map { prefs ->
+        AppPermission.entries.mapNotNull { permission ->
+            prefs[requestCountKey(permission)]?.takeIf { it > 0 }?.let { permission to it }
+        }.toMap()
+    }
+
+    override suspend fun markRequested(permission: AppPermission) {
+        dataStore.edit { prefs ->
+            val key = requestCountKey(permission)
+            prefs[key] = (prefs[key] ?: 0) + 1
+        }
+    }
+
     private object Keys {
         val SNOOZE_MINUTES = intPreferencesKey("snooze_minutes")
         val VIBRATION = booleanPreferencesKey("vibration_enabled")
@@ -58,3 +72,6 @@ class DataStoreSettingsRepository(
         val SNOOZE_NAME = stringPreferencesKey("pending_snooze_shift_name")
     }
 }
+
+/** DataStore key `permission_requests_<NAME>` (int). */
+internal fun requestCountKey(permission: AppPermission) = intPreferencesKey("permission_requests_${permission.name}")

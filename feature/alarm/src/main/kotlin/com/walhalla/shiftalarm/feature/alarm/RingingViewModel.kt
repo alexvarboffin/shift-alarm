@@ -4,11 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.walhalla.shiftalarm.core.alarm.RingingController
 import com.walhalla.shiftalarm.core.model.SettingsRepository
+import com.walhalla.shiftalarm.core.model.UserSettings
+import com.walhalla.shiftalarm.core.model.keepAlive
 import com.walhalla.shiftalarm.core.ui.UiText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -20,6 +21,7 @@ class RingingViewModel(
     private val shown = MutableStateFlow<Shown?>(null)
 
     val useDynamicColor: StateFlow<Boolean> = settingsRepository.settings
+        .keepAlive(UserSettings()) { }
         .map { it.useDynamicColor }
         .stateIn(
             scope = viewModelScope,
@@ -29,19 +31,17 @@ class RingingViewModel(
 
     val uiState: StateFlow<RingingUiState> = combine(
         shown,
-        settingsRepository.settings,
+        settingsRepository.settings.keepAlive(UserSettings()) { },
     ) { current, settings ->
         when {
             current == null -> RingingUiState.Loading
-            current.shiftName.isBlank() -> RingingUiState.Error(UiText.Raw("Нет данных будильника"))
+            current.shiftName.isBlank() -> RingingUiState.Error(UiText.Res(R.string.ringing_error_empty))
             else -> RingingUiState.Ringing(
                 shiftName = current.shiftName,
                 triggerAtEpochMillis = current.triggerAtEpochMillis,
                 snoozeMinutes = settings.snoozeMinutes,
             )
         }
-    }.catch { error ->
-        emit(RingingUiState.Error(UiText.Raw(error.message ?: "Не удалось открыть будильник")))
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
