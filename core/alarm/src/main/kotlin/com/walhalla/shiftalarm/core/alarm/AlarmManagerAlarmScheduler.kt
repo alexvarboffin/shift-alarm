@@ -316,9 +316,12 @@ class AlarmManagerAlarmScheduler(
                 notifications.createNotificationChannel(channel)
             }
         }
-        val settings = AlarmPermissionIntents.requestExactAlarm(context)
-        val content = settings?.let { intent ->
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Explicit: the tap opens our own launcher activity, and Settings there sends the user
+        // to ACTION_REQUEST_SCHEDULE_EXACT_ALARM with a plain startActivity. No implicit
+        // intent is wrapped in a PendingIntent.
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        val content = launch?.let { intent ->
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             PendingIntent.getActivity(
                 context,
                 AlarmIntents.NOTIFICATION_EXACT_DENIED,
