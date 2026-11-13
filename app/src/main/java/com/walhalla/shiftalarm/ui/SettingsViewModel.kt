@@ -162,8 +162,9 @@ class SettingsViewModel internal constructor(
             is SettingsEvent.PermissionRequested -> {
                 pendingMark = workScope.launch {
                     try {
-                        settingsRepository.markRequested(event.permission)
-                        latestAsked = latestAsked + (event.permission to (latestAsked[event.permission] ?: 0) + 1)
+                        // The repository is the only counter: take its value, never add 1 here.
+                        val count = settingsRepository.markRequested(event.permission)
+                        latestAsked = latestAsked + (event.permission to count)
                     } catch (error: CancellationException) {
                         throw error
                     } catch (_: Exception) {

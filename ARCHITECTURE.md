@@ -255,7 +255,7 @@ sealed interface RingingUiState {
 }
 ```
 
-Разрешения. `enum class AppPermission { NOTIFICATIONS, EXACT_ALARM, FULL_SCREEN_INTENT }` лежит в `:core:model`. `SettingsRepository` хранит, сколько раз показывался системный диалог: `permissionRequestCounts: Flow<Map<AppPermission, Int>>` и `suspend fun markRequested(permission)`, который увеличивает счётчик. Ключи DataStore `permission_requests_<NAME>` (int). UI шлёт `SettingsEvent.PermissionRequested` после ответа диалога при любом исходе (разрешил, отказал, закрыл), затем вызывает `refreshPermissions(rationale)`. Замеров времени нет. UI свой флаг не хранит.
+Разрешения. `enum class AppPermission { NOTIFICATIONS, EXACT_ALARM, FULL_SCREEN_INTENT }` лежит в `:core:model`. `SettingsRepository` хранит, сколько раз показывался системный диалог: `permissionRequestCounts: Flow<Map<AppPermission, Int>>` и `suspend fun markRequested(permission): Int`, который увеличивает счётчик и возвращает новое сохранённое значение. ViewModel берёт счётчик только из этого значения и сам +1 не делает. Ключи DataStore `permission_requests_<NAME>` (int). UI шлёт `SettingsEvent.PermissionRequested` после ответа диалога при любом исходе (разрешил, отказал, закрыл), затем вызывает `refreshPermissions(rationale)`. Замеров времени нет. UI свой флаг не хранит.
 
 Статус runtime-разрешения считает ViewModel, одно правило и после диалога, и на ON_RESUME:
 1. Выдано, значит `GRANTED`.

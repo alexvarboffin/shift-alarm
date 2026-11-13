@@ -55,8 +55,11 @@ interface SettingsRepository {
     /** How many times the system dialog or settings screen was shown per permission. Missing means 0. */
     val permissionRequestCounts: Flow<Map<AppPermission, Int>>
 
-    /** Adds one to the counter. Call after the dialog answered, whatever the outcome. */
-    suspend fun markRequested(permission: AppPermission)
+    /**
+     * Adds one to the counter. Call after the dialog answered, whatever the outcome.
+     * Returns the stored count after the write; callers use it instead of counting themselves.
+     */
+    suspend fun markRequested(permission: AppPermission): Int
 }
 
 /** Asks the home-screen widget to redraw. Implementation lives in `:widget`. */
