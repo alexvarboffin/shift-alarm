@@ -235,6 +235,22 @@ class SettingsViewModelTest {
         assertEquals(RingingChannels.RING, viewModel.uiState.value.blockedChannelId)
     }
 
+
+    @Test
+    fun missingChannelIsNotDeniedAndDoesNotPointToIt() {
+        val app = RuntimeEnvironment.getApplication()
+        val manager = app.getSystemService(NotificationManager::class.java)
+        manager.deleteNotificationChannel(RingingChannels.RING)
+        manager.deleteNotificationChannel(RingingChannels.FALLBACK)
+        shadowOf(app).grantPermissions(POST_NOTIFICATIONS)
+        val viewModel = viewModel(FakeSettingsRepository(), GrantingScheduler(granted = true), sdkInt = 34)
+        collect(viewModel)
+
+        val state = viewModel.uiState.value
+        assertEquals(PermissionStatus.GRANTED, state.notificationStatus)
+        assertNull(state.blockedChannelId)
+    }
+
     @Test
     fun channelRuleOnEveryApi() {
         assertEquals(

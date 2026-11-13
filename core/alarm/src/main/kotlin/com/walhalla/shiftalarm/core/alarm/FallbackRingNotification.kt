@@ -1,14 +1,11 @@
 package com.walhalla.shiftalarm.core.alarm
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
 import android.media.RingtoneManager
-import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 
@@ -20,7 +17,7 @@ import androidx.core.app.NotificationCompat
 internal object FallbackRingNotification {
     fun show(context: Context, launch: Intent, shiftName: String) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        ensureChannel(manager)
+        RingingChannels.ensureCreated(context)
         val content = PendingIntent.getActivity(
             context,
             AlarmIntents.REQUEST_FALLBACK_CONTENT,
@@ -52,24 +49,4 @@ internal object FallbackRingNotification {
         context.getSystemService(NotificationManager::class.java)?.cancel(AlarmIntents.NOTIFICATION_FALLBACK_RING)
     }
 
-    private fun ensureChannel(manager: NotificationManager) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        if (manager.getNotificationChannel(RingingChannels.FALLBACK) != null) return
-        val audio = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ALARM)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
-        val channel = NotificationChannel(
-            RingingChannels.FALLBACK,
-            "Будильник смены без точных будильников",
-            NotificationManager.IMPORTANCE_HIGH,
-        ).apply {
-            description = "Звучит, пока не открыт экран будильника, когда точные будильники выключены"
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), audio)
-            enableVibration(true)
-            vibrationPattern = longArrayOf(0, 600, 200, 600, 200, 800)
-        }
-        manager.createNotificationChannel(channel)
-    }
 }
