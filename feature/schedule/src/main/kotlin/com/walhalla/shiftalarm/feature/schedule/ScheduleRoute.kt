@@ -47,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -158,17 +159,41 @@ fun ScheduleScreen(
                     modifier = Modifier.semantics { heading() },
                 )
                 Spacer(Modifier.height(8.dp))
+                val activeInView = remember { BringIntoViewRequester() }
+                ActiveCardFollower(shown, activeInView)
                 shown.patterns.forEach { pattern ->
-                    PatternCard(
-                        pattern = pattern,
-                        active = pattern.id == shown.activePatternId,
-                        onActivate = onActivate,
-                    )
+                    val active = pattern.id == shown.activePatternId
+                    Box(if (active) Modifier.bringIntoViewRequester(activeInView) else Modifier) {
+                        PatternCard(
+                            pattern = pattern,
+                            active = active,
+                            onActivate = onActivate,
+                        )
+                    }
                 }
             }
         }
         Spacer(Modifier.height(24.dp))
         Spacer(Modifier.navigationBarsPadding())
+    }
+}
+
+/** Scrolls the active card into view when the user activates or adds a pattern, not on first load. */
+@Composable
+private fun ActiveCardFollower(state: ScheduleUiState, requester: BringIntoViewRequester) {
+    var ready by remember { mutableStateOf(false) }
+    var lastActive by remember { mutableStateOf<String?>(null) }
+    var lastCount by remember { mutableStateOf(0) }
+    LaunchedEffect(state.isLoading, state.activePatternId, state.patterns.size) {
+        if (state.isLoading) return@LaunchedEffect
+        val changed = state.activePatternId != lastActive || state.patterns.size > lastCount
+        if (ready && changed && state.activePatternId != null) {
+            withFrameNanos { }
+            requester.bringIntoView()
+        }
+        lastActive = state.activePatternId
+        lastCount = state.patterns.size
+        ready = true
     }
 }
 
