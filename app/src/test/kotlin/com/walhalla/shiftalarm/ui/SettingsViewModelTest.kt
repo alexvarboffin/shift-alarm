@@ -14,6 +14,8 @@ import com.walhalla.shiftalarm.core.ui.UiText
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -176,6 +179,62 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun oneNotificationRefusalWithoutRationaleCanAskAgain() {
+        // QA FAIL on 9e2cb9a: one BACK on the POST_NOTIFICATIONS dialog showed DENIED_PERMANENTLY.
+        // Like DataStore on a device, the store's new value reaches the collector before markRequested returns.
+        val app = RuntimeEnvironment.getApplication()
+        shadowOf(app.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(false)
+        val repository = FakeSettingsRepository(yieldAfterWrite = true)
+        val queue = QueueDispatcher()
+        val queued = CoroutineScope(SupervisorJob() + queue)
+        try {
+            val viewModel = viewModel(repository, GrantingScheduler(granted = true), sdkInt = 36, workScope = queued)
+            queued.launch { viewModel.uiState.collect {} }
+            queue.drain()
+            assertEquals(PermissionStatus.NOT_ASKED, viewModel.uiState.value.notificationStatus)
+
+            viewModel.onEvent(SettingsEvent.PermissionRequested(AppPermission.NOTIFICATIONS))
+            queue.drain()
+            viewModel.refreshPermissions(notificationRationale = false)
+            queue.drain()
+
+            assertEquals(mapOf(AppPermission.NOTIFICATIONS to 1), repository.counts.value)
+            assertEquals(PermissionStatus.CAN_ASK_AGAIN, viewModel.uiState.value.notificationStatus)
+
+            viewModel.onEvent(SettingsEvent.PermissionRequested(AppPermission.NOTIFICATIONS))
+            queue.drain()
+            viewModel.refreshPermissions(notificationRationale = false)
+            queue.drain()
+
+            assertEquals(mapOf(AppPermission.NOTIFICATIONS to 2), repository.counts.value)
+            assertEquals(PermissionStatus.DENIED_PERMANENTLY, viewModel.uiState.value.notificationStatus)
+        } finally {
+            queued.cancel()
+        }
+    }
+
+    @Test
+    fun oneSpecialAccessRefusalCountsOnceWhenStoreEmitsFirst() {
+        val repository = FakeSettingsRepository(yieldAfterWrite = true)
+        val queue = QueueDispatcher()
+        val queued = CoroutineScope(SupervisorJob() + queue)
+        try {
+            val viewModel = viewModel(repository, GrantingScheduler(granted = false), workScope = queued)
+            queued.launch { viewModel.uiState.collect {} }
+            queue.drain()
+
+            viewModel.onEvent(SettingsEvent.PermissionRequested(AppPermission.EXACT_ALARM))
+            queue.drain()
+            viewModel.refreshPermissions()
+            queue.drain()
+
+            assertEquals(PermissionStatus.CAN_ASK_AGAIN, viewModel.uiState.value.exactAlarmStatus)
+        } finally {
+            queued.cancel()
+        }
+    }
+
+    @Test
     fun storedCountsAreReadOnStart() {
         val repository = FakeSettingsRepository(initial = mapOf(AppPermission.FULL_SCREEN_INTENT to 1))
         val viewModel = viewModel(repository, GrantingScheduler(granted = false))
@@ -285,12 +344,13 @@ class SettingsViewModelTest {
         repository: SettingsRepository,
         scheduler: AlarmScheduler,
         sdkInt: Int = 34,
+        workScope: CoroutineScope = scope,
     ) = SettingsViewModel(
         settingsRepository = repository,
         alarmScheduler = scheduler,
         context = RuntimeEnvironment.getApplication(),
         clock = Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
-        scopeOverride = scope,
+        scopeOverride = workScope,
         sdkInt = sdkInt,
     )
 
@@ -302,6 +362,7 @@ class SettingsViewModelTest {
 private class FakeSettingsRepository(
     private val failFirstReads: Int = 0,
     private val failWrites: Boolean = false,
+    private val yieldAfterWrite: Boolean = false,
     initial: Map<AppPermission, Int> = emptyMap(),
 ) : SettingsRepository {
     var settingsReads = 0
@@ -315,9 +376,13 @@ private class FakeSettingsRepository(
     }
     override val permissionRequestCounts: Flow<Map<AppPermission, Int>> = counts
 
-    override suspend fun markRequested(permission: AppPermission) {
+    override suspend fun markRequested(permission: AppPermission): Int {
         if (failWrites) throw IllegalStateException("disk")
-        counts.value = counts.value + (permission to (counts.value[permission] ?: 0) + 1)
+        val count = (counts.value[permission] ?: 0) + 1
+        counts.value = counts.value + (permission to count)
+        // Let collectors see the new value before the caller continues, as DataStore does.
+        if (yieldAfterWrite) repeat(COLLECTOR_HOPS) { yield() }
+        return count
     }
 
     override suspend fun setSnoozeMinutes(minutes: Int) = Unit
@@ -334,3 +399,19 @@ private class GrantingScheduler(private val granted: Boolean) : AlarmScheduler {
     override fun canScheduleExactAlarms(): Boolean = granted
     override fun canUseFullScreenIntent(): Boolean = granted
 }
+
+/** Runs coroutines one at a time, in the order they were dispatched, until [drain] finds nothing left. */
+private class QueueDispatcher : CoroutineDispatcher() {
+    private val queue = ArrayDeque<Runnable>()
+
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        queue.addLast(block)
+    }
+
+    fun drain() {
+        while (queue.isNotEmpty()) queue.removeFirst().run()
+    }
+}
+
+/** Enough queue turns for the counts collector (combine, flatMapLatest, stateIn) to run first. */
+private const val COLLECTOR_HOPS = 10
