@@ -100,6 +100,11 @@ fun ScheduleScreen(
     onDismissError: () -> Unit = {},
 ) {
     val shown = rememberReachable(state)
+    var followRequests by remember { mutableStateOf(0) }
+    val applyAndFollow: (PatternTemplate) -> Unit = { template ->
+        if (template != PatternTemplate.CUSTOM) followRequests++
+        onApplyTemplate(template)
+    }
     ShiftPane(modifier = Modifier.verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(8.dp))
         Text(
@@ -117,11 +122,11 @@ fun ScheduleScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            TemplateButton(stringResource(R.string.schedule_template_two_two), PatternTemplate.TWO_TWO, onApplyTemplate)
-            TemplateButton(stringResource(R.string.schedule_template_three_three), PatternTemplate.THREE_THREE, onApplyTemplate)
-            TemplateButton(stringResource(R.string.schedule_template_one_three), PatternTemplate.ONE_THREE, onApplyTemplate)
-            TemplateButton(stringResource(R.string.schedule_template_five_two), PatternTemplate.FIVE_TWO, onApplyTemplate)
-            TemplateButton(stringResource(R.string.schedule_template_custom), PatternTemplate.CUSTOM, onApplyTemplate)
+            TemplateButton(stringResource(R.string.schedule_template_two_two), PatternTemplate.TWO_TWO, applyAndFollow)
+            TemplateButton(stringResource(R.string.schedule_template_three_three), PatternTemplate.THREE_THREE, applyAndFollow)
+            TemplateButton(stringResource(R.string.schedule_template_one_three), PatternTemplate.ONE_THREE, applyAndFollow)
+            TemplateButton(stringResource(R.string.schedule_template_five_two), PatternTemplate.FIVE_TWO, applyAndFollow)
+            TemplateButton(stringResource(R.string.schedule_template_custom), PatternTemplate.CUSTOM, applyAndFollow)
         }
         val loadError = shown.loadError
         val commandError = shown.commandError
@@ -160,7 +165,7 @@ fun ScheduleScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 val activeInView = remember { BringIntoViewRequester() }
-                ActiveCardFollower(shown, activeInView)
+                ActiveCardFollower(shown, followRequests, activeInView)
                 shown.patterns.forEach { pattern ->
                     val active = pattern.id == shown.activePatternId
                     Box(if (active) Modifier.bringIntoViewRequester(activeInView) else Modifier) {
@@ -178,21 +183,24 @@ fun ScheduleScreen(
     }
 }
 
-/** Scrolls the active card into view when the user activates or adds a pattern, not on first load. */
+/** Scrolls the active card into view after a template tap or when the active pattern changes, not on first load. */
 @Composable
-private fun ActiveCardFollower(state: ScheduleUiState, requester: BringIntoViewRequester) {
+private fun ActiveCardFollower(state: ScheduleUiState, followRequests: Int, requester: BringIntoViewRequester) {
     var ready by remember { mutableStateOf(false) }
     var lastActive by remember { mutableStateOf<String?>(null) }
     var lastCount by remember { mutableStateOf(0) }
-    LaunchedEffect(state.isLoading, state.activePatternId, state.patterns.size) {
+    var lastRequests by remember { mutableStateOf(followRequests) }
+    LaunchedEffect(state.isLoading, state.activePatternId, state.patterns.size, followRequests) {
         if (state.isLoading) return@LaunchedEffect
-        val changed = state.activePatternId != lastActive || state.patterns.size > lastCount
+        val changed = state.activePatternId != lastActive || state.patterns.size > lastCount ||
+            followRequests != lastRequests
         if (ready && changed && state.activePatternId != null) {
             withFrameNanos { }
             requester.bringIntoView()
         }
         lastActive = state.activePatternId
         lastCount = state.patterns.size
+        lastRequests = followRequests
         ready = true
     }
 }
