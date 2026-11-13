@@ -99,7 +99,7 @@ private class WatchAlarmRepository : AlarmRepository {
 private class WatchSettingsRepository : SettingsRepository {
     override val permissionRequestCounts: Flow<Map<AppPermission, Int>> = MutableStateFlow(emptyMap())
 
-    override suspend fun markRequested(permission: AppPermission) = Unit
+    override suspend fun markRequested(permission: AppPermission) = 0
 
     override val settings: Flow<UserSettings> = MutableStateFlow(UserSettings())
 

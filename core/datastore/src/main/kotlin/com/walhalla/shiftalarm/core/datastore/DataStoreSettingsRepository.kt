@@ -57,11 +57,12 @@ class DataStoreSettingsRepository(
         }.toMap()
     }
 
-    override suspend fun markRequested(permission: AppPermission) {
-        dataStore.edit { prefs ->
-            val key = requestCountKey(permission)
+    override suspend fun markRequested(permission: AppPermission): Int {
+        val key = requestCountKey(permission)
+        val saved = dataStore.edit { prefs ->
             prefs[key] = (prefs[key] ?: 0) + 1
         }
+        return saved[key] ?: 0
     }
 
     private object Keys {
