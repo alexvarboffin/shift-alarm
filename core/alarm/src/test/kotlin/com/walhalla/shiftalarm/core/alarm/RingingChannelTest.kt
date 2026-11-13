@@ -13,6 +13,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28])
 class RingingChannelTest {
     @Test
     fun oneRingChannelAndTheOldOnesAreLegacy() {
@@ -22,14 +23,13 @@ class RingingChannelTest {
     }
 
     @Test
-    @Config(sdk = [28])
     fun createsRingAndDeletesLegacyOnApi28() {
         val app = RuntimeEnvironment.getApplication()
         val manager = app.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel("shift_alarm_ring_vibrate", "old", NotificationManager.IMPORTANCE_HIGH),
         )
-        RingingChannels.ensureCreated(app)
+        RingingChannels.ensureCreated(app, sdkInt = 28)
         assertNotNull(manager.getNotificationChannel(RingingChannels.RING))
         assertNull(manager.getNotificationChannel(RingingChannels.FALLBACK))
         assertNull(manager.getNotificationChannel("shift_alarm_ring_vibrate"))
@@ -37,43 +37,39 @@ class RingingChannelTest {
     }
 
     @Test
-    @Config(sdk = [31])
     fun createsFallbackOnApi31() {
         val app = RuntimeEnvironment.getApplication()
         val manager = app.getSystemService(NotificationManager::class.java)
-        RingingChannels.ensureCreated(app)
+        RingingChannels.ensureCreated(app, sdkInt = 31)
         assertNotNull(manager.getNotificationChannel(RingingChannels.RING))
         assertNotNull(manager.getNotificationChannel(RingingChannels.FALLBACK))
     }
 
     @Test
-    @Config(sdk = [32])
     fun createsFallbackOnApi32() {
         val app = RuntimeEnvironment.getApplication()
         val manager = app.getSystemService(NotificationManager::class.java)
-        RingingChannels.ensureCreated(app)
+        RingingChannels.ensureCreated(app, sdkInt = 32)
         assertNotNull(manager.getNotificationChannel(RingingChannels.FALLBACK))
     }
 
     @Test
-    @Config(sdk = [33])
     fun doesNotCreateFallbackOnApi33() {
         val app = RuntimeEnvironment.getApplication()
         val manager = app.getSystemService(NotificationManager::class.java)
-        RingingChannels.ensureCreated(app)
+        RingingChannels.ensureCreated(app, sdkInt = 33)
         assertNotNull(manager.getNotificationChannel(RingingChannels.RING))
         assertNull(manager.getNotificationChannel(RingingChannels.FALLBACK))
     }
 
     @Test
-    @Config(sdk = [28])
     fun doesNotOverwriteAnExistingChannel() {
         val app = RuntimeEnvironment.getApplication()
         val manager = app.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(RingingChannels.RING, "ring", NotificationManager.IMPORTANCE_NONE),
         )
-        RingingChannels.ensureCreated(app)
+        RingingChannels.ensureCreated(app, sdkInt = 28)
         assertEquals(
             NotificationManager.IMPORTANCE_NONE,
             manager.getNotificationChannel(RingingChannels.RING).importance,

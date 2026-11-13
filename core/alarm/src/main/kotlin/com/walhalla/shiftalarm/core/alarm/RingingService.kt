@@ -203,8 +203,10 @@ object RingingChannels {
      * The service and the fallback notification call it again if the process started
      * without the Application. Existing channels are left as the user set them.
      */
-    fun ensureCreated(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    fun ensureCreated(context: Context) = ensureCreated(context, Build.VERSION.SDK_INT)
+
+    internal fun ensureCreated(context: Context, sdkInt: Int) {
+        if (sdkInt < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         LEGACY.forEach { manager.deleteNotificationChannel(it) }
         if (manager.getNotificationChannel(RING) == null) {
@@ -217,8 +219,7 @@ object RingingChannels {
                 },
             )
         }
-        val sdk = Build.VERSION.SDK_INT
-        if (sdk in Build.VERSION_CODES.S..Build.VERSION_CODES.S_V2 &&
+        if (sdkInt in Build.VERSION_CODES.S..Build.VERSION_CODES.S_V2 &&
             manager.getNotificationChannel(FALLBACK) == null
         ) {
             val audio = AudioAttributes.Builder()
