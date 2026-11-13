@@ -78,4 +78,17 @@ abstract class ShiftDao {
             markActive(patternId)
         }
     }
+
+    @Transaction
+    open suspend fun saveAndActivate(
+        types: List<ShiftTypeEntity>,
+        pattern: PatternEntity,
+        slots: List<PatternSlotEntity>,
+    ) {
+        clearActive()
+        types.forEach { upsertShiftType(it) }
+        upsertPattern(pattern)
+        deleteSlots(pattern.id)
+        slots.forEach { insertSlot(it) }
+    }
 }

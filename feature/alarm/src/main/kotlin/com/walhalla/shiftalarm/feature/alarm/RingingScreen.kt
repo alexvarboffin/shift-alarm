@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import java.time.Instant
 import java.time.ZoneId
@@ -24,7 +25,26 @@ fun RingingScreen(
     onStop: () -> Unit,
     onSnooze: () -> Unit,
 ) {
-    val clock = Instant.ofEpochMilli(state.triggerAtEpochMillis)
+    val hostContext = LocalContext.current
+    val ringing = state as? RingingUiState.Ringing
+    if (ringing == null) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = when (state) {
+                    RingingUiState.Loading -> "Будильник"
+                    is RingingUiState.Error -> state.errorMessage.resolve(hostContext)
+                    is RingingUiState.Ringing -> ""
+                },
+                style = MaterialTheme.typography.headlineMedium,
+            )
+        }
+        return
+    }
+    val clock = Instant.ofEpochMilli(ringing.triggerAtEpochMillis)
         .atZone(ZoneId.systemDefault())
         .toLocalTime()
         .format(DateTimeFormatter.ofPattern("HH:mm"))
@@ -37,7 +57,7 @@ fun RingingScreen(
     ) {
         Text("Смена", style = MaterialTheme.typography.labelLarge)
         Spacer(Modifier.height(8.dp))
-        Text(state.shiftName.ifBlank { "Будильник" }, style = MaterialTheme.typography.displaySmall)
+        Text(ringing.shiftName, style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.height(8.dp))
         Text(clock, style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(32.dp))
@@ -46,7 +66,7 @@ fun RingingScreen(
         }
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = onSnooze) {
-            Text("Отложить на ${state.snoozeMinutes} мин")
+            Text("Отложить на ${ringing.snoozeMinutes} мин")
         }
     }
 }

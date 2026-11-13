@@ -12,11 +12,16 @@ interface ShiftRepository {
 
     fun observeActivePattern(): Flow<ShiftPattern?>
 
+    fun observeShiftTypes(): Flow<List<ShiftType>>
+
     fun observeOverrides(): Flow<List<DayOverride>>
 
     suspend fun upsertPattern(pattern: ShiftPattern)
 
     suspend fun setActivePattern(patternId: String?)
+
+    /** Writes the cycle and makes it the only active pattern in one transaction. */
+    suspend fun saveAndActivate(pattern: ShiftPattern)
 
     suspend fun upsertOverride(override: DayOverride)
 
@@ -42,6 +47,8 @@ interface SettingsRepository {
     suspend fun setSnoozeMinutes(minutes: Int)
 
     suspend fun setVibrationEnabled(enabled: Boolean)
+
+    suspend fun setUseDynamicColor(enabled: Boolean)
 
     suspend fun setPendingSnooze(epochMillis: Long?, shiftName: String)
 }

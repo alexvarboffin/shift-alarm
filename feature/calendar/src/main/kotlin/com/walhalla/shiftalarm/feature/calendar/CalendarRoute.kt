@@ -1,6 +1,7 @@
 package com.walhalla.shiftalarm.feature.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -72,7 +74,10 @@ fun CalendarScreen(
         }
         when {
             state.isLoading -> CircularProgressIndicator()
-            state.errorMessage != null -> Text(state.errorMessage, color = MaterialTheme.colorScheme.error)
+            state.errorMessage != null -> Text(
+                state.errorMessage.resolve(LocalContext.current),
+                color = MaterialTheme.colorScheme.error,
+            )
             else -> {
                 if (!state.hasActivePattern) {
                     Text("Сначала выберите график. Дни считает ShiftCalculator.")
@@ -156,13 +161,14 @@ private fun MonthGrid(
                                     MaterialTheme.colorScheme.onSurface
                                 },
                             )
-                            if (day.colorArgb != null) {
+                            val dot = if (isSystemInDarkTheme()) day.colorDark else day.colorLight
+                            if (dot != null) {
                                 Box(
                                     Modifier
                                         .padding(top = 4.dp)
                                         .size(8.dp)
                                         .clip(CircleShape)
-                                        .background(Color(day.colorArgb)),
+                                        .background(Color(dot.toInt())),
                                 )
                             }
                             Text(

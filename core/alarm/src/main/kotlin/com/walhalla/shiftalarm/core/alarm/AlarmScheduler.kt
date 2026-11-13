@@ -6,7 +6,7 @@ package com.walhalla.shiftalarm.core.alarm
  * The AlarmManager implementation lives in this module.
  */
 interface AlarmScheduler {
-    suspend fun scheduleNext(notBeforeEpochMillis: Long = System.currentTimeMillis())
+    suspend fun scheduleNext(nowEpochMillis: Long = System.currentTimeMillis())
 
     suspend fun cancelNext()
 

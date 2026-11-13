@@ -17,6 +17,10 @@ class AlarmFireReceiver : BroadcastReceiver() {
     @Inject @ApplicationScope lateinit var scope: CoroutineScope
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != AlarmIntents.ACTION_FIRE) {
+            Log.w(TAG, "Ignored unexpected action ${intent.action}")
+            return
+        }
         val ringing = Intent(context, RingingService::class.java).apply {
             action = RingingService.ACTION_FIRE
             putExtras(intent)
@@ -33,7 +37,7 @@ class AlarmFireReceiver : BroadcastReceiver() {
         val pending = goAsync()
         scope.launch {
             try {
-                scheduler.scheduleNext(notBeforeEpochMillis = firedAt)
+                scheduler.scheduleNext(nowEpochMillis = firedAt)
             } catch (error: Exception) {
                 Log.e(TAG, "Reschedule after fire failed", error)
             } finally {

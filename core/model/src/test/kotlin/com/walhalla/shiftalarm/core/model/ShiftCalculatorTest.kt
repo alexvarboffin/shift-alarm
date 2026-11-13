@@ -1,8 +1,9 @@
 package com.walhalla.shiftalarm.core.model
 
 import java.time.LocalDate
-import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -14,10 +15,10 @@ class ShiftCalculatorTest {
 
     @Test
     fun startDateMapsToTheFirstSlot() {
-        val resolved = ShiftCalculator.shiftFor(start, twoTwo)
+        val resolved = ShiftCalculator.shiftFor(start, twoTwo, zone = ZoneOffset.UTC)
         assertEquals(BuiltinShifts.day, resolved.shift)
         assertEquals(ShiftSource.PATTERN, resolved.source)
-        assertEquals(LocalDateTime.of(start, LocalTime.of(7, 0)), resolved.alarmAt)
+        assertEquals(ZonedDateTime.of(start, LocalTime.of(5, 30), ZoneOffset.UTC), resolved.alarmAt)
     }
 
     @Test
@@ -27,8 +28,8 @@ class ShiftCalculatorTest {
         assertEquals("Отсыпной", shiftName(start.plusDays(2)))
         assertEquals("Выходной", shiftName(start.plusDays(3)))
         assertEquals("День", shiftName(start.plusDays(4)))
-        assertNull(ShiftCalculator.shiftFor(start.plusDays(2), twoTwo).alarmAt)
-        assertNull(ShiftCalculator.shiftFor(start.plusDays(3), twoTwo).alarmAt)
+        assertNull(ShiftCalculator.shiftFor(start.plusDays(2), twoTwo, zone = ZoneOffset.UTC).alarmAt)
+        assertNull(ShiftCalculator.shiftFor(start.plusDays(3), twoTwo, zone = ZoneOffset.UTC).alarmAt)
     }
 
     @Test
@@ -42,10 +43,10 @@ class ShiftCalculatorTest {
     fun overrideReplacesThePatternSlot() {
         val date = start
         val overrides = mapOf(date to DayOverride(date, BuiltinShifts.night))
-        val resolved = ShiftCalculator.shiftFor(date, twoTwo, overrides)
+        val resolved = ShiftCalculator.shiftFor(date, twoTwo, overrides, ZoneOffset.UTC)
         assertEquals(BuiltinShifts.night, resolved.shift)
         assertEquals(ShiftSource.OVERRIDE, resolved.source)
-        assertEquals(LocalTime.of(19, 0), resolved.alarmAt?.toLocalTime())
+        assertEquals(LocalTime.of(17, 30), resolved.alarmAt?.toLocalTime())
     }
 
     @Test
@@ -67,9 +68,9 @@ class ShiftCalculatorTest {
         val pattern = ShiftTemplates.oneThree(start)
         assertEquals(4, pattern.cycle.size)
         assertEquals(listOf("Сутки", "Отсыпной", "Выходной", "Выходной"), pattern.cycle.map { it.name })
-        val duty = ShiftCalculator.shiftFor(start, pattern)
-        assertEquals(LocalTime.of(8, 0), duty.alarmAt?.toLocalTime())
-        assertNull(ShiftCalculator.shiftFor(start.plusDays(1), pattern).alarmAt)
+        val duty = ShiftCalculator.shiftFor(start, pattern, zone = ZoneOffset.UTC)
+        assertEquals(LocalTime.of(6, 30), duty.alarmAt?.toLocalTime())
+        assertNull(ShiftCalculator.shiftFor(start.plusDays(1), pattern, zone = ZoneOffset.UTC).alarmAt)
     }
 
     @Test

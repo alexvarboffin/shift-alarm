@@ -25,7 +25,8 @@ class RingingActivity : ComponentActivity() {
         publish(intent)
         setContent {
             val state by viewModel.uiState.collectAsStateWithLifecycle()
-            ShiftAlarmTheme {
+            val dynamicColor by viewModel.useDynamicColor.collectAsStateWithLifecycle()
+            ShiftAlarmTheme(useDynamicColor = dynamicColor) {
                 RingingScreen(
                     state = state,
                     onStop = {
