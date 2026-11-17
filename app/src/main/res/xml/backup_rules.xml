@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API 24-30. Same exclusions as data_extraction_rules.xml. -->
+<full-backup-content>
+    <exclude domain="file" path="datastore/permissions.preferences_pb" />
+    <exclude domain="device_file" path="shift_alarm_direct_boot.preferences_pb" />
+</full-backup-content>
