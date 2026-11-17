@@ -13,10 +13,15 @@ import com.walhalla.shiftalarm.core.model.UserSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
+/**
+ * [settingsStore] holds user settings and is backed up.
+ * [permissionsStore] holds only `permission_requests_<NAME>` counters and stays on this device.
+ */
 class DataStoreSettingsRepository(
-    private val dataStore: DataStore<Preferences>,
+    private val settingsStore: DataStore<Preferences>,
+    private val permissionsStore: DataStore<Preferences>,
 ) : SettingsRepository {
-    override val settings: Flow<UserSettings> = dataStore.data.map { prefs ->
+    override val settings: Flow<UserSettings> = settingsStore.data.map { prefs ->
         UserSettings(
             snoozeMinutes = prefs[Keys.SNOOZE_MINUTES] ?: UserSettings.DEFAULT_SNOOZE_MINUTES,
             vibrationEnabled = prefs[Keys.VIBRATION] ?: true,
@@ -28,19 +33,19 @@ class DataStoreSettingsRepository(
 
     override suspend fun setSnoozeMinutes(minutes: Int) {
         val safe = minutes.coerceIn(1, 120)
-        dataStore.edit { prefs -> prefs[Keys.SNOOZE_MINUTES] = safe }
+        settingsStore.edit { prefs -> prefs[Keys.SNOOZE_MINUTES] = safe }
     }
 
     override suspend fun setVibrationEnabled(enabled: Boolean) {
-        dataStore.edit { prefs -> prefs[Keys.VIBRATION] = enabled }
+        settingsStore.edit { prefs -> prefs[Keys.VIBRATION] = enabled }
     }
 
     override suspend fun setUseDynamicColor(enabled: Boolean) {
-        dataStore.edit { prefs -> prefs[Keys.DYNAMIC_COLOR] = enabled }
+        settingsStore.edit { prefs -> prefs[Keys.DYNAMIC_COLOR] = enabled }
     }
 
     override suspend fun setPendingSnooze(epochMillis: Long?, shiftName: String) {
-        dataStore.edit { prefs ->
+        settingsStore.edit { prefs ->
             if (epochMillis == null) {
                 prefs.remove(Keys.SNOOZE_EPOCH)
                 prefs.remove(Keys.SNOOZE_NAME)
@@ -51,7 +56,7 @@ class DataStoreSettingsRepository(
         }
     }
 
-    override val permissionRequestCounts: Flow<Map<AppPermission, Int>> = dataStore.data.map { prefs ->
+    override val permissionRequestCounts: Flow<Map<AppPermission, Int>> = permissionsStore.data.map { prefs ->
         AppPermission.entries.mapNotNull { permission ->
             prefs[requestCountKey(permission)]?.takeIf { it > 0 }?.let { permission to it }
         }.toMap()
@@ -59,7 +64,7 @@ class DataStoreSettingsRepository(
 
     override suspend fun markRequested(permission: AppPermission): Int {
         val key = requestCountKey(permission)
-        val saved = dataStore.edit { prefs ->
+        val saved = permissionsStore.edit { prefs ->
             prefs[key] = (prefs[key] ?: 0) + 1
         }
         return saved[key] ?: 0
