@@ -13,13 +13,18 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.getValue
+import com.walhalla.shiftalarm.R
 import com.walhalla.shiftalarm.core.ui.ShiftRoutes
 import com.walhalla.shiftalarm.feature.calendar.CalendarRoute
 import com.walhalla.shiftalarm.feature.schedule.ScheduleRoute
@@ -27,6 +32,7 @@ import com.walhalla.shiftalarm.feature.schedule.ScheduleRoute
 private data class Tab(
     val route: String,
     val label: String,
+    val icon: ImageVector,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,15 +42,19 @@ fun ShiftAlarmNavHost() {
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route ?: ShiftRoutes.SCHEDULE
     val tabs = listOf(
-        Tab(ShiftRoutes.SCHEDULE, "График"),
-        Tab(ShiftRoutes.CALENDAR, "Календарь"),
-        Tab(ShiftRoutes.SETTINGS, "Настройки"),
+        Tab(ShiftRoutes.SCHEDULE, stringResource(R.string.nav_schedule), Icons.Filled.Notifications),
+        Tab(ShiftRoutes.CALENDAR, stringResource(R.string.nav_calendar), Icons.Filled.DateRange),
+        Tab(ShiftRoutes.SETTINGS, stringResource(R.string.nav_settings), Icons.Filled.Settings),
     )
+    val title = tabs.firstOrNull { it.route == route }?.label ?: stringResource(R.string.nav_schedule)
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(tabs.firstOrNull { it.route == route }?.label ?: "График")
+                    Text(
+                        text = title,
+                        modifier = Modifier.semantics { heading() },
+                    )
                 },
             )
         },
@@ -64,11 +74,7 @@ fun ShiftAlarmNavHost() {
                         },
                         icon = {
                             Icon(
-                                imageVector = when (tab.route) {
-                                    ShiftRoutes.CALENDAR -> Icons.Filled.DateRange
-                                    ShiftRoutes.SETTINGS -> Icons.Filled.Settings
-                                    else -> Icons.Filled.Notifications
-                                },
+                                imageVector = tab.icon,
                                 contentDescription = tab.label,
                             )
                         },
@@ -84,7 +90,19 @@ fun ShiftAlarmNavHost() {
             modifier = Modifier.padding(padding),
         ) {
             composable(ShiftRoutes.SCHEDULE) { ScheduleRoute() }
-            composable(ShiftRoutes.CALENDAR) { CalendarRoute() }
+            composable(ShiftRoutes.CALENDAR) {
+                CalendarRoute(
+                    onOpenSchedule = {
+                        navController.navigate(ShiftRoutes.SCHEDULE) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
+            }
             composable(ShiftRoutes.SETTINGS) { SettingsRoute() }
         }
     }
