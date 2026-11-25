@@ -17,6 +17,9 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.UserManager
 import androidx.core.app.NotificationCompat
+import com.walhalla.shiftalarm.core.model.RingEndDecision
+import com.walhalla.shiftalarm.core.model.RingEndReason
+import com.walhalla.shiftalarm.core.model.RingTimeout
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.UserSettings
 import java.time.Clock
@@ -41,8 +44,7 @@ class RingingService : Service(), KoinComponent {
     private val playback by lazy { RingingPlayback(this) }
     private val handler = Handler(Looper.getMainLooper())
     private val autoStop = Runnable {
-        // Nobody pressed Stop: same as dismiss(), the next slot is already armed.
-        scope.launch { runThenStopRinging(::stopRinging) { scheduler.dismiss() } }
+        scope.launch { executeRingEnd(RingEndReason.Timeout) }
     }
     private var ringingShiftName: String = "Смена"
 
@@ -50,17 +52,8 @@ class RingingService : Service(), KoinComponent {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> scope.launch {
-                runThenStopRinging(::stopRinging) { scheduler.dismiss() }
-            }
-            ACTION_SNOOZE -> scope.launch {
-                runThenStopRinging(::stopRinging) {
-                    val minutes = resolveSnoozeMinutes(isUserUnlocked()) {
-                        settingsRepository.settings.first().snoozeMinutes
-                    }
-                    scheduler.snooze(minutes, ringingShiftName.ifBlank { "Смена" })
-                }
-            }
+            ACTION_STOP -> scope.launch { executeRingEnd(RingEndReason.UserStop) }
+            ACTION_SNOOZE -> scope.launch { executeRingEnd(RingEndReason.UserSnooze) }
             else -> startRinging(intent)
         }
         return START_NOT_STICKY
@@ -69,7 +62,7 @@ class RingingService : Service(), KoinComponent {
     override fun onDestroy() {
         handler.removeCallbacks(autoStop)
         playback.stop()
-        RingingState.set(false)
+        RingingState.end()
         releaseWakeLock()
         super.onDestroy()
     }
@@ -85,7 +78,7 @@ class RingingService : Service(), KoinComponent {
         enterForeground(buildNotification(shiftName, triggerAt, snooze))
         RingingState.set(true)
         handler.removeCallbacks(autoStop)
-        handler.postDelayed(autoStop, AUTO_STOP_MILLIS)
+        handler.postDelayed(autoStop, RingTimeout.DURATION_MILLIS)
         scope.launch {
             val vibration = if (isUserUnlocked()) {
                 runCatching { settingsRepository.settings.first().vibrationEnabled }.getOrDefault(true)
@@ -104,10 +97,28 @@ class RingingService : Service(), KoinComponent {
         }
     }
 
+    private suspend fun executeRingEnd(reason: RingEndReason) {
+        RingingState.end()
+        runThenStopRinging(::stopRinging) {
+            val minutes = if (reason == RingEndReason.UserStop) {
+                0
+            } else {
+                resolveSnoozeMinutes(isUserUnlocked()) {
+                    settingsRepository.settings.first().snoozeMinutes
+                }
+            }
+            when (val decision = RingTimeout.decide(reason, clock, minutes)) {
+                is RingEndDecision.Snooze ->
+                    scheduler.snooze(decision.minutes, ringingShiftName.ifBlank { "Смена" })
+                RingEndDecision.StopAndScheduleNext -> scheduler.dismiss()
+            }
+        }
+    }
+
     private fun stopRinging() {
         handler.removeCallbacks(autoStop)
         playback.stop()
-        RingingState.set(false)
+        RingingState.end()
         releaseWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -180,10 +191,7 @@ class RingingService : Service(), KoinComponent {
         const val ACTION_SNOOZE: String = "com.walhalla.shiftalarm.action.RINGING_SNOOZE"
 
         private const val NOTIFICATION_ID: Int = 7101
-        private const val WAKE_LOCK_TIMEOUT_MILLIS: Long = 10 * 60 * 1000L
-
-        /** Ring stops by itself after 10 minutes, the same as Stop. */
-        internal const val AUTO_STOP_MILLIS: Long = 10 * 60 * 1000L
+        private const val WAKE_LOCK_TIMEOUT_MILLIS: Long = RingTimeout.DURATION_MILLIS
     }
 }
 

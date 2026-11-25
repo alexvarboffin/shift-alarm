@@ -21,7 +21,7 @@ interface AlarmScheduler {
 
 /** Starts or updates the ringing foreground service. UI and the notification share this. */
 interface RingingController {
-    /** True from the moment the ring starts until Stop, Snooze or the 10-minute auto-stop. */
+    /** True from the moment the ring starts until Stop, Snooze or the 10-minute auto-snooze timeout. */
     val isRinging: kotlinx.coroutines.flow.StateFlow<Boolean>
 
     fun stop()
