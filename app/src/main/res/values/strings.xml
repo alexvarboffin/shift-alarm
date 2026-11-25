@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Будильник смен</string>
+    <string name="app_name">График смен с будильником</string>
     <string name="settings_error_read">Не удалось прочитать настройки</string>
     <string name="settings_error_write">Не удалось сохранить настройки</string>
     <string name="nav_schedule">График</string>
