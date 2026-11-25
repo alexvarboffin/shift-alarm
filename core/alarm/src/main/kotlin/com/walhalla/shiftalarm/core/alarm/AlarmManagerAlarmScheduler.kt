@@ -17,6 +17,7 @@ import com.walhalla.shiftalarm.core.model.AlarmRepository
 import com.walhalla.shiftalarm.core.model.DayOverride
 import com.walhalla.shiftalarm.core.model.NextAlarmPlanner
 import com.walhalla.shiftalarm.core.model.NextTriggerSelector
+import com.walhalla.shiftalarm.core.model.RingTimeout
 import com.walhalla.shiftalarm.core.model.ScheduledTrigger
 import com.walhalla.shiftalarm.core.model.SettingsRepository
 import com.walhalla.shiftalarm.core.model.ShiftPattern
@@ -97,8 +98,7 @@ class AlarmManagerAlarmScheduler(
     }
 
     override suspend fun snooze(minutes: Int, shiftName: String) {
-        val delayMillis = minutes.coerceIn(1, 120) * 60_000L
-        val at = clock.millis() + delayMillis
+        val at = RingTimeout.snoozeAt(clock, minutes)
         if (!context.isUserUnlocked()) {
             val current = directBootStore.read() ?: DirectBootSnapshot(
                 triggerEpochMillis = at,
