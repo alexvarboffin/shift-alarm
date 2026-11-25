@@ -62,7 +62,7 @@ class RingingService : Service(), KoinComponent {
     override fun onDestroy() {
         handler.removeCallbacks(autoStop)
         playback.stop()
-        RingingState.set(false)
+        RingingState.end()
         releaseWakeLock()
         super.onDestroy()
     }
@@ -98,6 +98,7 @@ class RingingService : Service(), KoinComponent {
     }
 
     private suspend fun executeRingEnd(reason: RingEndReason) {
+        RingingState.end()
         runThenStopRinging(::stopRinging) {
             val minutes = if (reason == RingEndReason.UserStop) {
                 0
@@ -117,7 +118,7 @@ class RingingService : Service(), KoinComponent {
     private fun stopRinging() {
         handler.removeCallbacks(autoStop)
         playback.stop()
-        RingingState.set(false)
+        RingingState.end()
         releaseWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()

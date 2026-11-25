@@ -9,17 +9,26 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import com.walhalla.shiftalarm.core.model.RingingFlag
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Process-wide "a ring is going on" flag. Written only by [RingingService]. */
+/** Process-wide "a ring is going on" flag. Written only by the service and [ServiceRingingController]. */
 internal object RingingState {
     private val ringing = MutableStateFlow(false)
     val isRinging: StateFlow<Boolean> = ringing.asStateFlow()
 
     fun set(value: Boolean) {
         ringing.value = value
+    }
+
+    /**
+     * Single exit reset for Stop, Snooze, and timeout auto-snooze.
+     * Call before startService or scheduler work.
+     */
+    fun end() {
+        RingingFlag.reset(ringing)
     }
 }
 
